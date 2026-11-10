@@ -32,6 +32,7 @@
 #include "../reader/BookReadingStats.h"
 #include "../reader/BookStatsActivity.h"
 #include "../reader/BookStatsTracking.h"
+#include "../reader/DailyReadingStats.h"
 #include "../reader/EpubReaderUtils.h"
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
@@ -41,6 +42,7 @@
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
+#include "OpdsServerStore.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
 #include "SavedItemsHomeActivity.h"
@@ -49,6 +51,8 @@
 #include "activities/reader/KOSyncAuto.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/KOSyncBadge.h"
+#include "components/ThemePack.h"
+#include "components/Toast.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
@@ -684,12 +688,21 @@ void HomeActivity::fillCoverGridFromLibrary() {
   }
 }
 
+HomeCoverSlots* HomeActivity::coverSlots() const {
+  return packHomeUi ? &packHomeUi->covers() : coverGridUi ? &coverGridUi->covers() : nullptr;
+}
+
 bool HomeActivity::loadCoverGridThumbnails() {
-  HomeCoverThumbs::coverGridThumbHeight = coverGridUi->thumbHeightFor(0);
+  HomeCoverSlots& slots = *coverSlots();
+  // Zero (no reader-made thumb) when a pack Home shows no covers.
+  HomeCoverThumbs::coverGridThumbHeight = packHomeUi && packHomeUi->bookCount() == 0 ? 0 : slots.heightFor(0);
+  // A pack Home keeps one book for Continue and Back even with no covers block; it shows only bookCount().
+  const size_t shown =
+      packHomeUi ? std::min(recentBooks.size(), static_cast<size_t>(packHomeUi->bookCount())) : recentBooks.size();
   bool pathsChanged = false;
   std::vector<CoverJob> jobs;
-  jobs.reserve(recentBooks.size());
-  for (size_t i = 0; i < recentBooks.size(); ++i) {
+  jobs.reserve(shown);
+  for (size_t i = 0; i < shown; ++i) {
     auto& book = recentBooks[i];
     if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) continue;
     if (book.coverBmpPath.empty()) {
@@ -702,9 +715,7 @@ bool HomeActivity::loadCoverGridThumbnails() {
       }
       pathsChanged = pathsChanged || !book.coverBmpPath.empty();
     }
-    queueMissingThumbs(
-        jobs, i,
-        HomeCoverThumbs::forCoverGrid(book.path, coverGridUi->thumbWidthFor(i), coverGridUi->thumbHeightFor(i)));
+    queueMissingThumbs(jobs, i, HomeCoverThumbs::forCoverGrid(book.path, slots.widthFor(i), slots.heightFor(i)));
   }
   startCoverWorker(std::move(jobs));
   return pathsChanged;
@@ -887,8 +898,8 @@ void HomeActivity::applyCoverJobs() {
   if (anyJobs) coverRendered = false;
   recentsLoading = false;
   recentsLoaded = !std::exchange(coverReloadPending, false);
-  if (coverGridUi) {
-    coverGridUi->refreshCoverPaths();
+  if (HomeCoverSlots* slots = coverSlots()) {
+    slots->refreshPaths();
     return;
   }
 
@@ -914,12 +925,17 @@ void HomeActivity::onEnter() {
   Activity::onEnter();
 
   hasPlugins = SETTINGS.pluginsEnabled != 0;
-  if (UITheme::hasCoverGridHome()) {
+  if (const ThemePackHome::Layout* layout = ThemePack::homeLayout()) {
+    packHomeUi = makeUniqueNoThrow<PackHomeUi>(renderer, *layout);
+    if (!packHomeUi) LOG_ERR("HOME", "Cannot allocate theme pack Home; using the base theme's");
+  }
+  if (!packHomeUi && UITheme::hasCoverGridHome()) {
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "Cannot allocate cover grid UI; using standard Home");
   }
-  const bool isCarouselTheme =
-      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
+  // A pack Home replaces the base theme's Home, carousel included.
+  const bool isCarouselTheme = !packHomeUi && static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) ==
+                                                  CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
 
   // Check if any books have bookmarks (directory scan only, no file parsing)
   hasBookmarks = BookmarkStore::hasAnyBookmarks();
@@ -944,8 +960,9 @@ void HomeActivity::onEnter() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int recentBooksToLoad =
-      coverGridUi ? CoverGridHomeUi::MAX_BOOKS
-                  : std::min(kMaxCachedBooks, std::max(metrics.homeRecentBooksCount, HOME_BOOK_SWAP_RECENT_COUNT));
+      packHomeUi    ? std::max(1, packHomeUi->bookCount())
+      : coverGridUi ? CoverGridHomeUi::MAX_BOOKS
+                    : std::min(kMaxCachedBooks, std::max(metrics.homeRecentBooksCount, HOME_BOOK_SWAP_RECENT_COUNT));
   RECENT_BOOKS.ensureLoaded();
   loadRecentBooks(recentBooksToLoad);
   gridHasContinueReading = !recentBooks.empty();
@@ -958,7 +975,7 @@ void HomeActivity::onEnter() {
 
     for (int i = 0; i < static_cast<int>(recentBooks.size()); ++i) {
       if (recentBooks[i].path == path) {
-        if (metrics.homeRecentBooksCount == 1 && i > 0 && !coverGridUi) {
+        if (metrics.homeRecentBooksCount == 1 && i > 0 && !coverGridUi && !packHomeUi) {
           std::rotate(recentBooks.begin(), recentBooks.begin() + i, recentBooks.end());
           selectorIndex = 0;
           lastCarouselBookIndex = 0;
@@ -980,12 +997,13 @@ void HomeActivity::onEnter() {
   reloadGlobalStats();
   if (isCarouselTheme) {
     loadAllBookStats();
-  } else if (isLyraExtendedTheme()) {
+  } else if (isLyraExtendedTheme() && !packHomeUi) {
     // Every tile shows its % and KOSync badge: one small read per book, here instead of per draw.
     for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
       cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
     }
   }
+  if (packHomeUi) beginPackHome();
   updateHighlightedBookContext(false);
 
   if (coverGridUi) {
@@ -1015,7 +1033,7 @@ void HomeActivity::onEnter() {
     }
     coverGridUi->begin(recentBooks, hasPlugins, gridHasContinueReading,
                        gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
-  } else if (initialMenuItem != HomeMenuItem::NONE) {
+  } else if (!packHomeUi && initialMenuItem != HomeMenuItem::NONE) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
     const auto menuItems =
         buildSelectableHomeMenuItems(hasPlugins, hasReadingStats, hasBookmarks, hasClippings, includeContinueReading);
@@ -1040,26 +1058,28 @@ void HomeActivity::onEnter() {
 
 RecentBookProgress::SyncBadge HomeActivity::syncBadgeFor(const int idx) const {
   if (idx < 0 || idx >= static_cast<int>(recentBooks.size())) return RecentBookProgress::SyncBadge::None;
-  if (!coverGridUi && idx == getHighlightedBookIndex()) {
+  if (!coverGridUi && !packHomeUi && idx == getHighlightedBookIndex()) {
     return homeSyncBadge(recentBooks[idx], currentBookProgressPercent, currentBookSyncMark);
   }
-  // Cover Grid's featured book and Lyra Extended's others: loaded in onEnter().
+  // Cover Grid's featured book, a pack Home's books and Lyra Extended's others: loaded in onEnter().
   if (idx >= kMaxCachedBooks) return RecentBookProgress::SyncBadge::None;
   return homeSyncBadge(recentBooks[idx], cachedBookProgress[idx], cachedBookSyncMarks[idx]);
 }
 
 void HomeActivity::beginSyncBadge() {
-  // Cover Grid: the featured card is always the first book, whatever is selected.
-  syncBadgeBook = coverGridUi ? 0 : getHighlightedBookIndex();
+  // Cover Grid and a pack Home: the badge is always the most recent book's, whatever is selected.
+  syncBadgeBook = coverGridUi || packHomeUi ? 0 : getHighlightedBookIndex();
   syncBadgeShown = syncBadgeFor(syncBadgeBook);
-  if (isLyraExtendedTheme()) {
+  if (isLyraExtendedTheme() && !packHomeUi) {
     for (int i = 0; i < KOSyncBadge::HOME_SLOTS; ++i) KOSyncBadge::setHomeState(syncBadgeFor(i), i);
   } else {
     KOSyncBadge::setHomeState(syncBadgeShown);
   }
 }
 
-void HomeActivity::endSyncBadge() { syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() ? syncBadgeBook : 0); }
+void HomeActivity::endSyncBadge() {
+  syncBadgeBox = KOSyncBadge::takeRect(isLyraExtendedTheme() && !packHomeUi ? syncBadgeBook : 0);
+}
 
 bool HomeActivity::repaintSyncBadge() {
   if (syncBadgeBox.width == 0) return false;
@@ -1078,6 +1098,8 @@ int HomeActivity::getHighlightedBookIndex() const {
   if (coverGridUi) {
     return selectorIndex < static_cast<int>(recentBooks.size()) ? selectorIndex : 0;
   }
+  // A pack Home's book stats and the Stats screen follow the most recent book: no card reads while moving.
+  if (packHomeUi) return 0;
 
   const int visibleBookCount = getVisibleRecentBookCount();
   const int highlightedBookIdx = (selectorIndex < visibleBookCount) ? selectorIndex : lastCarouselBookIndex;
@@ -1085,11 +1107,12 @@ int HomeActivity::getHighlightedBookIndex() const {
 }
 
 int HomeActivity::getVisibleRecentBookCount() const {
-  return coverGridUi ? static_cast<int>(recentBooks.size()) : ::getVisibleRecentBookCount(recentBooks);
+  return coverGridUi || packHomeUi ? static_cast<int>(recentBooks.size()) : ::getVisibleRecentBookCount(recentBooks);
 }
 
 bool HomeActivity::canSwapHomeBook() const {
-  return !coverGridUi && UITheme::getInstance().getMetrics().homeRecentBooksCount == 1 && recentBooks.size() > 1;
+  return !coverGridUi && !packHomeUi && UITheme::getInstance().getMetrics().homeRecentBooksCount == 1 &&
+         recentBooks.size() > 1;
 }
 
 void HomeActivity::showNextRecentBookOnHome() {
@@ -1240,7 +1263,7 @@ void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead
   if (idx >= 0) {
     const RecentBook& book = recentBooks[idx];
     const bool isEpub = FsHelpers::hasEpubExtension(book.path);
-    const bool loadChapterTitle = isDashboardTheme();
+    const bool loadChapterTitle = isDashboardTheme() && !packHomeUi;
     if (useCachedStats) {
       currentBookStats = visibleRecentBookStats(book, cachedBookStats[idx]);
       currentBookProgressPercent = cachedBookProgress[idx];
@@ -1276,6 +1299,7 @@ void HomeActivity::onExit() {
   libraryPrewarmHandOff = false;
 
   coverGridUi.reset();
+  packHomeUi.reset();
   carouselMenuTouchDownIndex = -1;
   freeCoverBuffer();
   gCarouselCache.invalidate();
@@ -1616,6 +1640,38 @@ void HomeActivity::loop() {
   }
 
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+
+  if (packHomeUi) {
+    const int touched = packHomeUi->tappedStop(mappedInput);
+    if (packHomeUi->app.invalidated()) requestUpdate();
+    if (touched >= 0) {
+      selectorIndex = touched;
+      activatePackSelection();
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) backPressSeen = true;
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) && backPressSeen && !recentBooks.empty()) {
+      onSelectBook(recentBooks.front().path);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      activatePackSelection();
+      return;
+    }
+    // One focus ring through every book and entry, in layout order.
+    const int count = packHomeUi->stopCount();
+    if (count > 0) {
+      buttonNavigator.onNext([this, count] {
+        selectorIndex = ButtonNavigator::nextIndex(selectorIndex, count);
+        requestUpdate();
+      });
+      buttonNavigator.onPrevious([this, count] {
+        selectorIndex = ButtonNavigator::previousIndex(selectorIndex, count);
+        requestUpdate();
+      });
+    }
+    return;
+  }
 
   if (coverGridUi) {
     const int touched = coverGridUi->selectedAction(mappedInput);
@@ -2261,6 +2317,105 @@ void HomeActivity::activateCoverGridSelection() {
   }
 }
 
+void HomeActivity::beginPackHome() {
+  using ThemePackHome::Action;
+  PackHomeUi& ui = *packHomeUi;
+  ui.begin(recentBooks, {hasBookmarks, hasClippings, OPDS_STORE.hasServers(), SETTINGS.shouldTrackReadingStats()});
+  // Book cards show their % (the most recent one its KOSync badge): one small read each, here instead of per draw.
+  for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
+    if (!ui.showsCard(i)) continue;
+    cachedBookProgress[i] = loadRecentBookProgress(recentBooks[i], &cachedBookSyncMarks[i]);
+    ui.progress[i] = cachedBookProgress[i];
+  }
+
+  int stop = -1;
+  switch (initialMenuItem) {
+    case HomeMenuItem::FILE_BROWSER:
+      stop = ui.stopForAction(Action::Files);
+      break;
+    case HomeMenuItem::LIBRARY:
+      stop = ui.stopForAction(Action::Library);
+      break;
+    case HomeMenuItem::FILE_TRANSFER:
+      stop = ui.stopForAction(Action::Transfer);
+      break;
+    case HomeMenuItem::SETTINGS_MENU:
+      stop = ui.stopForAction(Action::Settings);
+      break;
+    case HomeMenuItem::PLUGINS:
+    case HomeMenuItem::NONE:
+      break;
+  }
+  if (stop < 0) stop = ui.stopForBook(selectorIndex);  // the book just read
+  selectorIndex = std::max(0, stop);
+
+  // Stats read once here, and only those the layout shows.
+  if (ui.shows(ThemePackHome::Stat::Streak)) {
+    ReadingStatsDateTime now;
+    if (getCurrentLocalReadingStatsDateTime(now)) ui.stats.streak = globalStats.currentReadingStreak(&now.date);
+  }
+  if (ui.shows(ThemePackHome::Stat::Today)) {
+    ReadingStatsDateTime now;
+    ui.stats.hasToday = getCurrentLocalDailyReadingDateTime(now) &&
+                        DailyReadingStats::secondsFor(readingStatsDayIndex(now.date), ui.stats.todaySeconds);
+  }
+}
+
+void HomeActivity::activatePackSelection() {
+  using ThemePackHome::Action;
+  const PackHomeUi::Target picked = packHomeUi->targetAt(selectorIndex);
+  if (picked.book >= 0 && picked.book < static_cast<int>(recentBooks.size())) {
+    onSelectBook(recentBooks[picked.book].path);
+    return;
+  }
+  if (!picked.entry) return;
+  switch (picked.entry->action) {
+    case Action::Continue:
+      if (!recentBooks.empty()) onSelectBook(recentBooks.front().path);
+      return;
+    case Action::Library:
+      onLibraryOpen();
+      return;
+    case Action::Files:
+      onFileBrowserOpen();
+      return;
+    case Action::Opds:
+      activityManager.goToBrowser();
+      return;
+    case Action::Transfer:
+      onFileTransferOpen();
+      return;
+    case Action::Settings:
+      onSettingsOpen();
+      return;
+    case Action::Stats:
+      onReadingStatsOpen();
+      return;
+    case Action::Saved:
+      onSavedItemsOpen();
+      return;
+    case Action::Goodies:
+      onGoodiesOpen();
+      return;
+    case Action::Folder:
+    case Action::Book:
+      // The pack names a card path: it may be gone or renamed.
+      if (!Storage.exists(picked.entry->path)) {
+        LOG_ERR("HOME", "Theme pack entry not found: %s", picked.entry->path);
+        {
+          RenderLock lock;
+          Toast::show(renderer, tr(STR_NOT_FOUND));
+        }
+        requestUpdate();
+      } else if (picked.entry->action == Action::Folder) {
+        activityManager.goToFileBrowser(picked.entry->path);
+      } else {
+        onSelectBook(picked.entry->path);
+      }
+      return;
+  }
+}
+
 bool HomeActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWRBTN action) {
   if (action == CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER) {
     onFileBrowserOpen();
@@ -2333,6 +2488,48 @@ void HomeActivity::render(RenderLock&&) {
     initialRefreshMode = HalDisplay::FAST_REFRESH;
   };
 
+  if (packHomeUi) {
+    PackHomeUi& ui = *packHomeUi;
+    ui.select(selectorIndex);
+    ui.stats.totalSeconds = globalStats.totalReadingSeconds;
+    ui.stats.booksRead = globalStats.completedBooks;
+    ui.stats.bookProgress = currentBookProgressPercent;
+    ui.stats.bookSeconds = currentBookStats.totalReadingSeconds;
+    const auto drawFrame = [&] {
+      renderer.clearScreen();
+      beginSyncBadge();
+      ui.render();
+      endSyncBadge();
+      const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_READ), tr(STR_SELECT), tr(STR_DIR_UP),
+                                                tr(STR_DIR_DOWN));
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    };
+    drawFrame();
+    bool sizesChanged = ui.covers().takeSizesChanged();
+    // The first frame learns the cover slot sizes: draw it again in RAM, not with a second panel refresh.
+    if (sizesChanged && !firstRenderDone) drawFrame();
+    sizesChanged = ui.covers().takeSizesChanged() || sizesChanged;
+    displayHomeBuffer();
+    firstRenderDone = true;
+
+    if (sizesChanged) {
+      // A running job makes the old sizes; run again once it is done.
+      if (recentsLoading) {
+        coverReloadPending = true;
+      } else {
+        recentsLoaded = false;
+      }
+    }
+    if (!recentsLoaded && !recentsLoading) {
+      // Repaint only for newly resolved artwork or a reload still owed; a started worker repaints when done.
+      if (loadCoverGridThumbnails() || (!recentsLoaded && !recentsLoading)) {
+        ui.covers().refreshPaths();
+        requestUpdate();
+      }
+    }
+    return;
+  }
+
   if (coverGridUi) {
     renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
@@ -2344,9 +2541,9 @@ void HomeActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     displayHomeBuffer();
 
-    const bool thumbSizesChanged = coverGridUi->takeThumbHeightsChanged();
+    const bool thumbSizesChanged = coverGridUi->covers().takeSizesChanged();
     if (thumbSizesChanged) {
-      coverGridUi->refreshCoverPaths();
+      coverGridUi->covers().refreshPaths();
       // A running job makes the old sizes; run again once it is done.
       if (recentsLoading) {
         coverReloadPending = true;
@@ -2361,7 +2558,7 @@ void HomeActivity::render(RenderLock&&) {
       // The panel already shows this frame: repaint only for newly resolved artwork or a
       // reload still owed. A started worker repaints when its covers are done.
       if (loadCoverGridThumbnails() || (!recentsLoaded && !recentsLoading)) {
-        coverGridUi->refreshCoverPaths();
+        coverGridUi->covers().refreshPaths();
         requestUpdate();
       }
     }

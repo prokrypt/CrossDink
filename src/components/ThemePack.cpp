@@ -21,6 +21,7 @@
 
 #include "CrossPointSettings.h"
 #include "ThemePackFields.h"
+#include "ThemePackHome.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
@@ -34,7 +35,9 @@ namespace {
 constexpr const char* kRoots[] = {"/.themes", "/themes"};
 constexpr size_t kMaxJsonBytes = 16 * 1024;
 constexpr uint32_t kMaxCrashes = 2;
-constexpr size_t kMaxListed = 64;  // picker indices are uint8_t
+constexpr size_t kMaxListed = 64;             // picker indices are uint8_t
+constexpr size_t kMaxImageBytes = 96 * 1024;  // all of a pack's Home images (worksheet pick 6)
+constexpr int kMaxImageSide = 800;
 
 // Every metrics table theme code reads through themed(); inline, so one address per table.
 constexpr const ThemeMetrics* kBuiltIns[] = {
@@ -65,13 +68,17 @@ static_assert(kIconCount == UIIcon::Flask + 1, "one name per UIIcon");
 constexpr int kIconBytes = 32 * 4;  // a 32 px icon: 32 rows of 4 bytes; 24 px uses 24 x 3
 
 // One allocation per active pack (~6 KB, so it lands in PSRAM on the S3): the
-// built-in tables with the overrides applied, and the decoded icons. Freed when
-// the pack is turned off; nothing is allocated while no pack is set.
+// built-in tables with the overrides applied, and the decoded icons. A home.json
+// adds its layout (~4 KB) and images (96 KB at most), also PSRAM. Freed when the
+// pack is turned off; nothing is allocated while no pack is set.
 struct Pack {
   uint8_t base = 0;
   ThemeMetrics metrics[std::size(kBuiltIns)];
   freeink::Icon icons[kIconCount][2] = {};  // [24 px, 32 px]; bits == nullptr: built-in
   uint8_t iconBits[kIconCount][2][kIconBytes];
+  std::unique_ptr<ThemePackHome::Layout> home;
+  freeink::Icon images[ThemePackHome::kMaxImages] = {};  // bits == nullptr: not loaded
+  std::unique_ptr<uint8_t[]> imageBits[ThemePackHome::kMaxImages];
 };
 
 std::unique_ptr<Pack> gPack;
@@ -156,6 +163,29 @@ bool readJson(const char* path, JsonDocument& doc) {
   return true;
 }
 
+// A 1-bit BMP's rows as Mask1 bits (stride (w + 7) / 8, 1 = transparent). Returns
+// the ink's vertical center, or -1 on a short read. rowBuffer holds getRowBytes()
+// bytes, out (w + 3) / 4 (2 bits a pixel).
+int readMask(const Bitmap& bmp, uint8_t* bits, uint8_t* rowBuffer, uint8_t* out) {
+  const int w = bmp.getWidth();
+  const int h = bmp.getHeight();
+  const int stride = (w + 7) / 8;
+  std::memset(bits, 0xFF, static_cast<size_t>(stride) * h);
+  long inkRows = 0;
+  long inkPixels = 0;
+  for (int row = 0; row < h; ++row) {
+    if (bmp.readNextRow(out, rowBuffer) != BmpReaderError::Ok) return -1;
+    const int y = bmp.isTopDown() ? row : h - 1 - row;
+    for (int x = 0; x < w; ++x) {
+      if (((out[x / 4] >> (6 - 2 * (x % 4))) & 0x03) >= 2) continue;  // white
+      bits[y * stride + x / 8] &= static_cast<uint8_t>(~(0x80 >> (x % 8)));
+      inkRows += y;
+      ++inkPixels;
+    }
+  }
+  return static_cast<int>(inkPixels > 0 ? inkRows / inkPixels : h / 2);
+}
+
 void loadIcon(Pack& pack, const int slotIcon, const char* dir, const char* file) {
   if (!validRelativePath(file)) {
     LOG_ERR("THM", "icon %s: \"%s\" must be a file in the pack folder", kIconNames[slotIcon], file);
@@ -184,30 +214,79 @@ void loadIcon(Pack& pack, const int slotIcon, const char* dir, const char* file)
     return;
   }
   const int slot = w == 32 ? 1 : 0;
-  const int stride = (w + 7) / 8;
   uint8_t* bits = pack.iconBits[slotIcon][slot];
-  std::memset(bits, 0xFF, static_cast<size_t>(stride) * h);  // Mask1: 1 = transparent
   uint8_t rowBuffer[4] = {};
   uint8_t out[8] = {};  // 32 px at 2 bits
-  long inkRows = 0;
-  int inkPixels = 0;
-  for (int row = 0; row < h; ++row) {
-    if (bmp.readNextRow(out, rowBuffer) != BmpReaderError::Ok) {
-      f.close();
-      LOG_ERR("THM", "%s: short read", path);
-      return;
-    }
-    const int y = bmp.isTopDown() ? row : h - 1 - row;
-    for (int x = 0; x < w; ++x) {
-      if (((out[x / 4] >> (6 - 2 * (x % 4))) & 0x03) >= 2) continue;  // white
-      bits[y * stride + x / 8] &= static_cast<uint8_t>(~(0x80 >> (x % 8)));
-      inkRows += y;
-      ++inkPixels;
-    }
-  }
+  const int centerY = readMask(bmp, bits, rowBuffer, out);
   f.close();
-  const auto centerY = static_cast<int16_t>(inkPixels > 0 ? inkRows / inkPixels : h / 2);
-  pack.icons[slotIcon][slot] = {static_cast<uint16_t>(w), static_cast<uint16_t>(h), centerY, bits};
+  if (centerY < 0) {
+    LOG_ERR("THM", "%s: short read", path);
+    return;
+  }
+  pack.icons[slotIcon][slot] = {static_cast<uint16_t>(w), static_cast<uint16_t>(h), static_cast<int16_t>(centerY),
+                                bits};
+}
+
+void loadImage(Pack& pack, const int index, const char* dir, const char* file, size_t& budget) {
+  char path[128];
+  std::snprintf(path, sizeof(path), "%s/%s", dir, file);
+  HalFile f;
+  if (!Storage.openFileForReadIfPresent("THM", path, f)) {
+    LOG_ERR("THM", "%s: missing", path);
+    return;
+  }
+  Bitmap bmp(f);
+  bmp.setBwOutput(128);
+  const BmpReaderError err = bmp.parseHeaders();
+  const int w = bmp.getWidth();
+  const int h = bmp.getHeight();
+  const size_t bytes = static_cast<size_t>((w + 7) / 8) * std::max(h, 0);
+  const char* problem = err != BmpReaderError::Ok                                    ? Bitmap::errorToString(err)
+                        : !bmp.is1Bit()                                              ? "not a 1-bit BMP"
+                        : w <= 0 || h <= 0 || w > kMaxImageSide || h > kMaxImageSide ? "not 1 to 800 px a side"
+                        : bytes > budget                                             ? "past the 96 KB image budget"
+                                                                                     : nullptr;
+  if (problem) {
+    f.close();
+    LOG_ERR("THM", "%s: %s", path, problem);
+    return;
+  }
+  // Scratch for this read only: a file row (<= 100 B) and its 2-bit output (<= 200 B).
+  auto scratch = makeUniqueNoThrow<uint8_t[]>(bmp.getRowBytes() + (w + 3) / 4);
+  auto bits = makeUniqueNoThrow<uint8_t[]>(bytes);
+  if (!scratch || !bits) {
+    f.close();
+    LOG_ERR("THM", "%s: out of memory (%u bytes)", path, static_cast<unsigned>(bytes));
+    return;
+  }
+  const int centerY = readMask(bmp, bits.get(), scratch.get(), scratch.get() + bmp.getRowBytes());
+  f.close();
+  if (centerY < 0) {
+    LOG_ERR("THM", "%s: short read", path);
+    return;
+  }
+  pack.images[index] = {static_cast<uint16_t>(w), static_cast<uint16_t>(h), static_cast<int16_t>(centerY), bits.get()};
+  pack.imageBits[index] = std::move(bits);
+  budget -= bytes;
+}
+
+// Optional. A bad home.json keeps the base theme's Home and queues the toast; the
+// pack's look still applies.
+void loadHome(Pack& pack, const char* dir, JsonDocument& doc) {
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/home.json", dir);
+  if (!Storage.exists(path)) return;
+  auto home = makeUniqueNoThrow<ThemePackHome::Layout>();
+  if (!home) LOG_ERR("THM", "%s: out of memory", path);
+  if (!home || !readJson(path, doc) || !ThemePackHome::parse(doc.as<JsonObjectConst>(), path, *home)) {
+    gToast = tr(STR_THEME_PACK_ERROR);
+    return;
+  }
+  size_t budget = kMaxImageBytes;
+  for (uint8_t i = 0; i < home->imageCount; ++i) loadImage(pack, i, dir, home->images[i], budget);
+  LOG_INF("THM", "%s: %u blocks, %u entries, %u KB of images", path, home->blockCount, home->entryCount,
+          static_cast<unsigned>((kMaxImageBytes - budget + 1023) / 1024));
+  pack.home = std::move(home);
 }
 
 std::unique_ptr<Pack> load(const char* name) {
@@ -295,6 +374,7 @@ std::unique_ptr<Pack> load(const char* name) {
     }
   }
   LOG_INF("THM", "loaded %s: base %s, %d metrics, %d icons", name, base->name, overrides, icons);
+  loadHome(*pack, dir, doc);
   return pack;
 }
 
@@ -324,6 +404,14 @@ const freeink::Icon* icon(const UIIcon which, const uint32_t size) {
   if (!pack || index < 0 || index >= kIconCount || (size != 24 && size != 32)) return nullptr;
   const freeink::Icon& i = pack->icons[index][size == 32 ? 1 : 0];
   return i.bits ? &i : nullptr;
+}
+
+const ThemePackHome::Layout* homeLayout() { return gPack ? gPack->home.get() : nullptr; }
+
+const freeink::Icon* image(const uint8_t index) {
+  const Pack* pack = gPack.get();
+  if (!pack || index >= ThemePackHome::kMaxImages || !pack->images[index].bits) return nullptr;
+  return &pack->images[index];
 }
 
 std::vector<std::string> list() {

@@ -142,6 +142,7 @@ add_subdirectory(adobe_font_obfuscation)
 add_subdirectory(glyph_bitmap)
 add_subdirectory(png_row_decoder)
 add_subdirectory(theme_pack_fields)
+add_subdirectory(theme_pack_home)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME TransferReliabilityRegression

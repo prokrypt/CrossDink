@@ -10,12 +10,16 @@
 namespace freeink {
 struct Icon;
 }
+namespace ThemePackHome {
+struct Layout;
+}
 
 // SD-card theme packs: /.themes/<name>/theme.json or /themes/<name>/theme.json,
 // hidden root first (the /.fonts and /fonts rule). A pack names a built-in base
 // theme and overrides its metrics (ThemePackFields) and icons (1-bit BMP, 24 or
-// 32 px). Data only: nothing in a pack reaches refresh modes, waveforms or panel
-// registers. Read once when picked or at boot; drawing never touches the card.
+// 32 px); an optional home.json lays out Home (ThemePackHome). Data only: nothing
+// in a pack reaches refresh modes, waveforms or panel registers. Read once when
+// picked or at boot; drawing never touches the card.
 namespace ThemePack {
 
 // Brings the loaded pack in line with SETTINGS.uiThemePack and, when one is
@@ -27,6 +31,11 @@ void sync(bool force);
 bool active();
 // The pack's icon for this slot and size (24 or 32), or nullptr for the built-in one.
 const freeink::Icon* icon(UIIcon icon, uint32_t size);
+// The active pack's Home layout (home.json, ThemePackHome.h), or nullptr: Home is
+// then the base theme's. Main loop, or the render task under RenderLock.
+const ThemePackHome::Layout* homeLayout();
+// The bitmap of the layout's image `index` (Mask1), or nullptr when it did not load.
+const freeink::Icon* image(uint8_t index);
 // Pack folder names in both roots, sorted (directory listing only).
 std::vector<std::string> list();
 // Boot, before the first sync: the second crash reboot in a row with a pack set
