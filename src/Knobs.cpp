@@ -28,6 +28,7 @@ const Info INFO[] = {
 namespace {
 constexpr char PATH[] = "/.crossdink/knobs.json";
 constexpr char BAD_PATH[] = "/.crossdink/knobs.bad.json";
+constexpr char BAK_PATH[] = "/.crossdink/knobs.json.bak";
 // Fields have their constants' types, so each gets its own accessor pair.
 int32_t (*const GET[])() = {
 #define X(group, id, ...) [] { return static_cast<int32_t>(KNOBS.id); },
@@ -112,7 +113,11 @@ bool save() {
   for (int i = 0; i < COUNT; ++i) {
     if (get(i) != INFO[i].def) doc[INFO[i].id] = get(i);
   }
-  if (doc.size() == 0) return !Storage.exists(PATH) || Storage.remove(PATH);
+  if (doc.size() == 0) {
+    // Both copies go: readDocFromFile would load a lone knobs.json.bak.
+    const bool bakGone = !Storage.exists(BAK_PATH) || Storage.remove(BAK_PATH);
+    return (!Storage.exists(PATH) || Storage.remove(PATH)) && bakGone;
+  }
   return PersistableStoreBase::writeDocToFileAtomically(PATH, doc);
 }
 }  // namespace
@@ -175,6 +180,7 @@ void load(const bool skipFile) {
             static_cast<unsigned long>(MAX_BAD_BOOTS));
     if (Storage.exists(BAD_PATH)) Storage.remove(BAD_PATH);
     if (Storage.exists(PATH) && !Storage.rename(PATH, BAD_PATH)) Storage.remove(PATH);
+    if (Storage.exists(BAK_PATH)) Storage.remove(BAK_PATH);
     setBadBoots(0);
     logBoot("set aside as knobs.bad.json");
     apply();

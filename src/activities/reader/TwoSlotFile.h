@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <InPlaceFileWrite.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -9,7 +10,6 @@
 #include <cstring>
 
 #include "ProgressRecord.h"
-#include "util/InPlaceFileWrite.h"
 
 // Two-slot in-place saves for small binary files (reading stats), the policy
 // progress.bin uses (ProgressRecord.h): each save overwrites the older of

@@ -2,6 +2,7 @@
 
 #include <Epub.h>
 #include <HalStorage.h>
+#include <InPlaceFileWrite.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -11,7 +12,6 @@
 
 #include "HeldWrites.h"
 #include "ProgressRecord.h"
-#include "util/InPlaceFileWrite.h"
 
 namespace EpubReaderUtils {
 

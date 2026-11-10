@@ -2,10 +2,47 @@
 
 #include <Arduino.h>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 
-class HalFile;
+#ifndef O_RDWR
+#define O_RDWR 0x02
+#endif
+#ifndef O_CREAT
+#define O_CREAT 0x40
+#endif
+
+// In-place writes only: bytes go straight into the stored file.
+class HalFile {
+ public:
+  HalFile() = default;
+  explicit HalFile(std::string* bytes) : bytes_(bytes) {}
+
+  size_t write(const uint8_t* input, const size_t length) {
+    if (!bytes_) return 0;
+    if (cursor_ + length > bytes_->size()) bytes_->resize(cursor_ + length);
+    std::copy_n(input, length, bytes_->begin() + static_cast<std::ptrdiff_t>(cursor_));
+    cursor_ += length;
+    return length;
+  }
+  bool seekSet(const size_t position) {
+    cursor_ = position;
+    return bytes_ != nullptr;
+  }
+  void flush() {}
+  bool sync() const { return bytes_ != nullptr; }
+  bool close() {
+    bytes_ = nullptr;
+    return true;
+  }
+  size_t fileSize() const { return bytes_ ? bytes_->size() : 0; }
+  explicit operator bool() const { return bytes_ != nullptr; }
+
+ private:
+  std::string* bytes_ = nullptr;
+  size_t cursor_ = 0;
+};
 
 class HalStorage {
  public:
@@ -29,6 +66,8 @@ class HalStorage {
     files.erase(source);
     return true;
   }
+
+  HalFile open(const char* path, int) { return HalFile(&files[path]); }
 
   bool writeFile(const char* path, const String& content) {
     files[path] = content.c_str();

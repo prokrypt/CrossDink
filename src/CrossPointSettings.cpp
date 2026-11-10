@@ -6,6 +6,7 @@
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <InPlaceFileWrite.h>
 #include <LanguageCache.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -29,7 +30,6 @@
 #include "SettingsList.h"
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
-#include "util/InPlaceFileWrite.h"
 #include "util/PluginLocations.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
