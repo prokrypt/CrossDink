@@ -118,6 +118,9 @@ class HalStorage {
   // A /.crossdink path whose file stands for its /.crosspoint twin (HalStorage read-through).
   bool isTwinOnly(const char* path) const { return twinOnly_.contains(path); }
   void markTwinOnly(std::string path) { twinOnly_.insert(std::move(path)); }
+  // Folder moves (StatsStorage::adoptFolder) are not exercised by these tests.
+  void hideTwin(const char*) {}
+  bool rmdir(const char*) { return true; }
   std::vector<std::string> paths() const {
     std::vector<std::string> out;
     // cppcheck-suppress useStlAlgorithm ; a plain copy of the keys
