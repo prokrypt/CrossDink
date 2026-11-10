@@ -26,6 +26,11 @@ a cover grid, a banner image and a user page).
 
 The pack is read once, when picked and at boot. Drawing never reads the card.
 
+Over Wi-Fi, the **Themes** page of File Transfer lists the packs, picks one,
+uploads a pack folder to `/themes/`, and lists every problem the last load
+found, including problems in the pack's user pages. Uploading the pack in use
+reloads it.
+
 In the simulator the SD card root is `./fs_/`, so a pack goes in
 `./fs_/themes/<name>/`.
 

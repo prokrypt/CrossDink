@@ -39,6 +39,12 @@ const freeink::Icon* image(uint8_t index);
 // Reads the active pack's user page pages/<id>.json (ThemePackHome::parsePage) into
 // out. Main loop, when the page is opened. False (logged) when it is missing or bad.
 bool page(const char* id, ThemePackHome::Layout& out);
+// Parses every pages/*.json of the active pack (at most 32), so their problems join
+// problems(). Web Themes page, under RenderLock.
+void checkPages();
+// Problems the last pack load and checkPages() reported, one per line (2 KB at most).
+// Under RenderLock: sync() rewrites it.
+const std::string& problems();
 // Pack folder names in both roots, sorted (directory listing only).
 std::vector<std::string> list();
 // Boot, before the first sync: the second crash reboot in a row with a pack set

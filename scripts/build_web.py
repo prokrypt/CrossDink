@@ -36,6 +36,7 @@ PAGES = {
     "files":    ("FilesPageHtml",    "Files - CrossDink",          "files",    '  <script src="/js/jszip.min.js"></script><script src="/plugin-host.js"></script>'),
     "settings": ("SettingsPageHtml", "Settings - CrossDink Reader", "settings", '<script src="/plugin-host.js"></script>'),
     "fonts":    ("FontsPageHtml",    "Fonts - CrossDink",          "fonts",    ""),
+    "themes":   ("ThemesPageHtml",   "Themes - CrossDink",         "themes",   ""),
     "logs":     ("LogsPageHtml",     "Logs - CrossDink",           "logs",     ""),
 }
 
@@ -135,7 +136,7 @@ for slug, (ident, title, active, head_extra) in PAGES.items():
     values = {
         "title": title, "v": v, "head_extra": head_extra,
         "styles": page_css, "body": page_html, "script": script,
-        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "", "cls_logs": "",
+        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "", "cls_themes": "", "cls_logs": "",
     }
     values[f"cls_{active}"] = ' class="active"'
     html = minify_html(render(base, values))

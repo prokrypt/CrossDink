@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 // A theme pack's Home layout: home.json beside theme.json. Data only: blocks from a
 // fixed set, stacked top to bottom by PackHomeUi, and Home entries from a fixed
@@ -94,6 +95,12 @@ struct Layout {
   uint8_t imageCount = 0;
   uint8_t bookCount = 0;  // books across all covers blocks
 };
+
+// Logs a pack problem as a [THM] error and, while a sink is set, appends it as a line
+// (2 KB in all) for the web Themes page. Pack loading and the parsers report through this.
+void report(const char* format, ...) __attribute__((format(printf, 1, 2)));
+// Main loop or web task, under RenderLock; nullptr stops collecting.
+void setProblemSink(std::string* sink);
 
 // Fills out from home.json's root; file names the file in log lines. False (logged)
 // when nothing usable is left: Home then stays the base theme's.

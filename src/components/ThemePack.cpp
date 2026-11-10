@@ -85,6 +85,7 @@ struct Pack {
 std::unique_ptr<Pack> gPack;
 char gTried[sizeof(CrossPointSettings::uiThemePack)] = "";  // last name sync() read, loaded or not
 const char* gToast = nullptr;
+std::string gProblems;  // the last sync()'s load and checkPages(); for the web Themes page
 
 // Crash guard. RTC_NOINIT survives panics, watchdog resets and deep sleep; it is
 // noise after power-on, and another firmware may have left data here, so any
@@ -134,31 +135,31 @@ bool findDir(const char* name, char* dir, const size_t size) {
 bool readJson(const char* path, JsonDocument& doc) {
   HalFile file;
   if (!Storage.openFileForReadIfPresent("THM", path, file)) {
-    LOG_ERR("THM", "%s: missing", path);
+    ThemePackHome::report("%s: missing", path);
     return false;
   }
   const size_t size = file.size();
   if (size == 0 || size > kMaxJsonBytes) {
     file.close();
-    LOG_ERR("THM", "%s: %u bytes (1 to %u allowed)", path, static_cast<unsigned>(size),
-            static_cast<unsigned>(kMaxJsonBytes));
+    ThemePackHome::report("%s: %u bytes (1 to %u allowed)", path, static_cast<unsigned>(size),
+                          static_cast<unsigned>(kMaxJsonBytes));
     return false;
   }
   auto text = makeUniqueNoThrow<char[]>(size);
   if (!text) {
     file.close();
-    LOG_ERR("THM", "%s: out of memory", path);
+    ThemePackHome::report("%s: out of memory", path);
     return false;
   }
   const bool read = file.read(text.get(), size) == static_cast<int>(size);
   file.close();
   if (!read) {
-    LOG_ERR("THM", "%s: short read", path);
+    ThemePackHome::report("%s: short read", path);
     return false;
   }
   const DeserializationError error = deserializeJson(doc, text.get(), size);
   if (error) {
-    LOG_ERR("THM", "%s: %s", path, error.c_str());
+    ThemePackHome::report("%s: %s", path, error.c_str());
     return false;
   }
   return true;
@@ -189,14 +190,14 @@ int readMask(const Bitmap& bmp, uint8_t* bits, uint8_t* rowBuffer, uint8_t* out)
 
 void loadIcon(Pack& pack, const int slotIcon, const char* dir, const char* file) {
   if (!validRelativePath(file)) {
-    LOG_ERR("THM", "icon %s: \"%s\" must be a file in the pack folder", kIconNames[slotIcon], file);
+    ThemePackHome::report("icon %s: \"%s\" must be a file in the pack folder", kIconNames[slotIcon], file);
     return;
   }
   char path[128];
   std::snprintf(path, sizeof(path), "%s/%s", dir, file);
   HalFile f;
   if (!Storage.openFileForReadIfPresent("THM", path, f)) {
-    LOG_ERR("THM", "%s: missing", path);
+    ThemePackHome::report("%s: missing", path);
     return;
   }
   Bitmap bmp(f);
@@ -211,7 +212,7 @@ void loadIcon(Pack& pack, const int slotIcon, const char* dir, const char* file)
                                                          : nullptr;
   if (problem) {
     f.close();
-    LOG_ERR("THM", "%s: %s", path, problem);
+    ThemePackHome::report("%s: %s", path, problem);
     return;
   }
   const int slot = w == 32 ? 1 : 0;
@@ -221,7 +222,7 @@ void loadIcon(Pack& pack, const int slotIcon, const char* dir, const char* file)
   const int centerY = readMask(bmp, bits, rowBuffer, out);
   f.close();
   if (centerY < 0) {
-    LOG_ERR("THM", "%s: short read", path);
+    ThemePackHome::report("%s: short read", path);
     return;
   }
   pack.icons[slotIcon][slot] = {static_cast<uint16_t>(w), static_cast<uint16_t>(h), static_cast<int16_t>(centerY),
@@ -233,7 +234,7 @@ void loadImage(Pack& pack, const int index, const char* dir, const char* file, s
   std::snprintf(path, sizeof(path), "%s/%s", dir, file);
   HalFile f;
   if (!Storage.openFileForReadIfPresent("THM", path, f)) {
-    LOG_ERR("THM", "%s: missing", path);
+    ThemePackHome::report("%s: missing", path);
     return;
   }
   Bitmap bmp(f);
@@ -249,7 +250,7 @@ void loadImage(Pack& pack, const int index, const char* dir, const char* file, s
                                                                                      : nullptr;
   if (problem) {
     f.close();
-    LOG_ERR("THM", "%s: %s", path, problem);
+    ThemePackHome::report("%s: %s", path, problem);
     return;
   }
   // Scratch for this read only: a file row (<= 100 B) and its 2-bit output (<= 200 B).
@@ -257,13 +258,13 @@ void loadImage(Pack& pack, const int index, const char* dir, const char* file, s
   auto bits = makeUniqueNoThrow<uint8_t[]>(bytes);
   if (!scratch || !bits) {
     f.close();
-    LOG_ERR("THM", "%s: out of memory (%u bytes)", path, static_cast<unsigned>(bytes));
+    ThemePackHome::report("%s: out of memory (%u bytes)", path, static_cast<unsigned>(bytes));
     return;
   }
   const int centerY = readMask(bmp, bits.get(), scratch.get(), scratch.get() + bmp.getRowBytes());
   f.close();
   if (centerY < 0) {
-    LOG_ERR("THM", "%s: short read", path);
+    ThemePackHome::report("%s: short read", path);
     return;
   }
   pack.images[index] = {static_cast<uint16_t>(w), static_cast<uint16_t>(h), static_cast<int16_t>(centerY), bits.get()};
@@ -278,7 +279,7 @@ void loadHome(Pack& pack, const char* dir, JsonDocument& doc) {
   std::snprintf(path, sizeof(path), "%s/home.json", dir);
   if (!Storage.exists(path)) return;
   auto home = makeUniqueNoThrow<ThemePackHome::Layout>();
-  if (!home) LOG_ERR("THM", "%s: out of memory", path);
+  if (!home) ThemePackHome::report("%s: out of memory", path);
   if (!home || !readJson(path, doc) || !ThemePackHome::parse(doc.as<JsonObjectConst>(), path, *home)) {
     gToast = tr(STR_THEME_PACK_ERROR);
     return;
@@ -292,12 +293,12 @@ void loadHome(Pack& pack, const char* dir, JsonDocument& doc) {
 
 std::unique_ptr<Pack> load(const char* name) {
   if (!validName(name)) {
-    LOG_ERR("THM", "\"%s\": not a folder name", name);
+    ThemePackHome::report("\"%s\": not a folder name", name);
     return nullptr;
   }
   char dir[64];
   if (!findDir(name, dir, sizeof(dir))) {
-    LOG_ERR("THM", "%s: not in /.themes or /themes", name);
+    ThemePackHome::report("%s: not in /.themes or /themes", name);
     return nullptr;
   }
   char path[96];
@@ -309,19 +310,19 @@ std::unique_ptr<Pack> load(const char* name) {
   const BaseName* base = std::find_if(std::begin(kBases), std::end(kBases),
                                       [baseName](const BaseName& b) { return std::strcmp(b.name, baseName) == 0; });
   if (base == std::end(kBases)) {
-    LOG_ERR("THM", "%s: unknown base \"%s\"", path, baseName);
+    ThemePackHome::report("%s: unknown base \"%s\"", path, baseName);
     return nullptr;
   }
   // Touch boards drop these two from the theme picker (SettingsList.h); a pack cannot bring them back.
   if (gpio.hasTouch() &&
       (base->theme == CrossPointSettings::CLASSIC || base->theme == CrossPointSettings::ROUNDEDRAFF)) {
-    LOG_ERR("THM", "%s: base \"%s\" is not offered on touch devices", path, baseName);
+    ThemePackHome::report("%s: base \"%s\" is not offered on touch devices", path, baseName);
     return nullptr;
   }
 
   auto pack = makeUniqueNoThrow<Pack>();
   if (!pack) {
-    LOG_ERR("THM", "%s: out of memory", name);
+    ThemePackHome::report("%s: out of memory", name);
     return nullptr;
   }
   pack->base = static_cast<uint8_t>(base->theme);
@@ -333,17 +334,17 @@ std::unique_ptr<Pack> load(const char* name) {
     const char* key = kv.key().c_str();
     const int field = ThemePackFields::find(key);
     if (field < 0) {
-      LOG_ERR("THM", "%s: metric %s unknown, ignored", path, key);
+      ThemePackHome::report("%s: metric %s unknown, ignored", path, key);
       continue;
     }
     int32_t value = 0;
     const auto parsed = ThemePackFields::parse(field, kv.value(), value);
     if (parsed == ThemePackFields::Parse::Bad) {
-      LOG_ERR("THM", "%s: metric %s has the wrong type, ignored", path, key);
+      ThemePackHome::report("%s: metric %s has the wrong type, ignored", path, key);
       continue;
     }
     if (parsed == ThemePackFields::Parse::Clamped) {
-      LOG_ERR("THM", "%s: metric %s clamped to %ld", path, key, static_cast<long>(value));
+      ThemePackHome::report("%s: metric %s clamped to %ld", path, key, static_cast<long>(value));
     }
     for (auto& metrics : pack->metrics) ThemePackFields::apply(metrics, field, value);
     ++overrides;
@@ -355,7 +356,7 @@ std::unique_ptr<Pack> load(const char* name) {
     const auto it = std::find_if(std::begin(kIconNames), std::end(kIconNames),
                                  [key](const char* n) { return std::strcmp(n, key) == 0; });
     if (it == std::end(kIconNames)) {
-      LOG_ERR("THM", "%s: icon %s unknown, ignored", path, key);
+      ThemePackHome::report("%s: icon %s unknown, ignored", path, key);
       continue;
     }
     const int slotIcon = static_cast<int>(it - std::begin(kIconNames));
@@ -372,7 +373,7 @@ std::unique_ptr<Pack> load(const char* name) {
     const char* key = kv.key().c_str();
     if (std::strcmp(key, "name") && std::strcmp(key, "base") && std::strcmp(key, "metrics") &&
         std::strcmp(key, "icons")) {
-      LOG_ERR("THM", "%s: key %s not supported, ignored", path, key);
+      ThemePackHome::report("%s: key %s not supported, ignored", path, key);
     }
   }
   LOG_INF("THM", "loaded %s: base %s, %d metrics, %d icons", name, base->name, overrides, icons);
@@ -387,12 +388,16 @@ void sync(const bool force) {
   if (want[0] == '\0') {
     gPack.reset();
     gTried[0] = '\0';
+    gProblems.clear();
     return;
   }
   if (force || std::strcmp(want, gTried) != 0) {
     std::snprintf(gTried, sizeof(gTried), "%s", want);
     gPack.reset();
+    gProblems.clear();
+    ThemePackHome::setProblemSink(&gProblems);
     gPack = load(want);
+    ThemePackHome::setProblemSink(nullptr);
     if (!gPack) gToast = tr(STR_THEME_PACK_ERROR);
   }
   if (gPack) SETTINGS.uiTheme = gPack->base;
@@ -418,7 +423,7 @@ const freeink::Icon* image(const uint8_t index) {
 
 bool page(const char* id, ThemePackHome::Layout& out) {
   if (!gPack) {
-    LOG_ERR("THM", "page %s: no theme pack active", id);
+    ThemePackHome::report("page %s: no theme pack active", id);
     return false;
   }
   char path[160];
@@ -426,6 +431,41 @@ bool page(const char* id, ThemePackHome::Layout& out) {
   JsonDocument doc;
   return readJson(path, doc) && ThemePackHome::parsePage(doc.as<JsonObjectConst>(), path, id, out);
 }
+
+void checkPages() {
+  if (!gPack) return;
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/pages", gPack->dir);
+  HalFile dir = Storage.open(path);
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return;
+  }
+  auto layout = makeUniqueNoThrow<ThemePackHome::Layout>();  // ~4 KB scratch, PSRAM on the S3
+  if (!layout) {
+    dir.close();
+    ThemePackHome::report("%s: out of memory", path);
+    return;
+  }
+  ThemePackHome::setProblemSink(&gProblems);
+  char name[ThemePackHome::kTextBytes + 8];
+  for (int pages = 0; pages < 32;) {
+    HalFile entry = dir.openNextFile();
+    if (!entry) break;
+    name[0] = '\0';
+    if (!entry.isDirectory()) entry.getName(name, sizeof(name));
+    entry.close();
+    const size_t len = std::strlen(name);
+    if (len <= 5 || name[0] == '.' || std::strcmp(name + len - 5, ".json") != 0) continue;
+    name[len - 5] = '\0';
+    page(name, *layout);
+    ++pages;
+  }
+  ThemePackHome::setProblemSink(nullptr);
+  dir.close();
+}
+
+const std::string& problems() { return gProblems; }
 
 std::vector<std::string> list() {
   std::vector<std::string> names;
@@ -456,8 +496,8 @@ void bootGuard(const esp_reset_reason_t reason) {
                      reason == ESP_RST_WDT || reason == ESP_RST_CPU_LOCKUP;
   uint32_t crashes = guardValid() && crash && SETTINGS.uiThemePack[0] != '\0' ? crashGuard.crashes + 1 : 0;
   if (crashes >= kMaxCrashes) {
-    LOG_ERR("THM", "%lu crash reboots in a row with pack %s: pack turned off", static_cast<unsigned long>(crashes),
-            SETTINGS.uiThemePack);
+    ThemePackHome::report("%lu crash reboots in a row with pack %s: pack turned off",
+                          static_cast<unsigned long>(crashes), SETTINGS.uiThemePack);
     SETTINGS.uiThemePack[0] = '\0';
     SETTINGS.saveToFile();  // rare recovery path, so not deferred to sleep
     gToast = tr(STR_THEME_PACK_CRASHED);
