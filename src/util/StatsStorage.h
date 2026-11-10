@@ -30,6 +30,17 @@ Owner legacyOwner(const std::string& legacyPath);
 // or a claim could not be written).
 bool beforeFirstSave(const std::string& legacyPath);
 
+// Folders (daily counters, session outbox) have no second slot to fall back
+// on, so an older build's folder this reader owns moves into this reader's.
+// Where to read `legacyFolder` from: this reader's folder if present, else an
+// older build's folder this reader owns. Reads only. Empty without an identity.
+std::string folderToRead(const std::string& legacyFolder);
+// This reader's folder, after moving in an older build's folder it owns (one
+// rename; file by file when both exist after an OTA rollback, keeping this
+// reader's copy of a name both hold). Writes: call from save and upload paths.
+// Another reader's folder stays as it is. Empty: do not write.
+std::string adoptFolder(const std::string& legacyFolder);
+
 // Drops the cached root claims (the card's content may have changed).
 void forget();
 }  // namespace StatsStorage

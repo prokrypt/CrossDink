@@ -5,6 +5,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -105,6 +106,8 @@ class HalStorage {
     files.clear();
     faults = {};
     failRemovePath_.clear();
+    twinOnly.clear();
+    hidden.clear();
   }
   bool mkdir(const char* path) {
     auto data = std::make_shared<HostFileData>();
@@ -122,10 +125,32 @@ class HalStorage {
   }
   bool rename(const char* from, const char* to) {
     if (!files.contains(from) || files.contains(to)) return false;
+    const std::string prefix = std::string(from) + "/";
+    std::vector<std::pair<std::string, std::shared_ptr<HostFileData>>> children;
+    for (auto it = files.begin(); it != files.end();) {
+      if (it->first.starts_with(prefix)) {
+        children.emplace_back(std::string(to) + it->first.substr(prefix.size() - 1), it->second);
+        it = files.erase(it);
+      } else {
+        ++it;
+      }
+    }
     files[to] = files[from];
     files.erase(from);
+    files.insert(children.begin(), children.end());
     return true;
   }
+  bool rmdir(const char* path) {
+    const std::string prefix = std::string(path) + "/";
+    if (std::any_of(files.begin(), files.end(), [&](const auto& entry) { return entry.first.starts_with(prefix); }))
+      return false;
+    return files.erase(path) > 0;
+  }
+  // Twins (/.crosspoint read-through) are modelled only as flags: what tests mark and what code hid.
+  bool isTwinOnly(const char* path) const { return twinOnly.contains(path); }
+  void hideTwin(const char* path) { hidden.insert(path); }
+  std::set<std::string> twinOnly;
+  std::set<std::string> hidden;
   HalFile open(const char* path) {
     auto it = files.find(path);
     if (it == files.end()) return {};
@@ -150,6 +175,12 @@ class HalStorage {
     files[path] = data;
     file = HalFile(data, path);
     ++faults.writes;
+    return true;
+  }
+  bool writeFile(const char* path, const std::string& content) {
+    auto data = std::make_shared<HostFileData>();
+    data->bytes.assign(content.begin(), content.end());
+    files[path] = data;
     return true;
   }
   void failNextRemove(std::string path) { failRemovePath_ = std::move(path); }

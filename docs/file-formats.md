@@ -574,8 +574,8 @@ Nothing writes these files yet: the bulk sync screens that use them come in a la
 
 ## Daily reading counters (v2)
 
-Device-local counters live in `/.crossdink/daily_reading/YYYY-MM.a.bin` and
-`YYYY-MM.b.bin`. Each month uses at most two 264-byte snapshots, regardless of
+Device-local counters live in `/.crossdink/daily_reading_<reader>/YYYY-MM.a.bin` and
+`YYYY-MM.b.bin` (see "Reading-stat reader ownership"). Each month uses at most two 264-byte snapshots, regardless of
 how many days were read (dates support 2000–2099). All integers are little-endian:
 
 | Offset | Size | Meaning |
@@ -841,6 +841,16 @@ digits, so a CrossInk build on the same reader shares them):
 
 - `/.crossdink/global_stats_<reader>.bin` and `.bak` (two slots).
 - Per-book `stats_v6_<reader>.bin` and `.bak` in the book cache folder.
+- `/.crossdink/daily_reading_<reader>/` (daily counters) and
+  `/.crossdink/reading_sessions_<reader>/` (session outbox).
+
+Folders have no second slot, so an older build's `daily_reading/` or
+`reading_sessions/` the reader owns moves into its own folder on the first
+write or upload (reads use it in place until then): one rename, or file by file
+when both folders exist after an OTA rollback, keeping the reader's own copy of
+a name both hold. A native folder whose `/.crosspoint` twin another reader
+recorded hides that twin first, so the move does not merge it. Another reader's
+folder stays as it is; its pending sessions are kept, never uploaded.
 
 Payload versions and wire formats are unchanged. Files under the older names
 (`global_stats_dink.bin`, `global_stats.bin`, per-book `stats_v6.bin`,
@@ -1675,7 +1685,7 @@ accepted page interval starts a new one. A sudden power loss loses the live
 session, as it does the other unsaved reader stats. Idle page intervals and
 intervals with an unavailable or corrected clock never enter a session.
 
-`/.crossdink/reading_sessions/<32-lowercase-hex-id>.bin` uses SyncFiles atomic
+`/.crossdink/reading_sessions_<reader>/<32-lowercase-hex-id>.bin` (see "Reading-stat reader ownership") uses SyncFiles atomic
 writes, CRC validation, and `.tmp`/`.bak` recovery. Fields are written separately
 in little-endian order, without struct padding:
 

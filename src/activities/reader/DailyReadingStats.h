@@ -7,6 +7,7 @@ struct Counter {
   uint32_t seconds = 0;
   uint32_t uploaded = 0;
 };
+// Older builds' folder; this reader's is daily_reading_<readerId> (util/StatsStorage.h).
 constexpr const char* DIRECTORY = "/.crossdink/daily_reading";
 bool read(uint32_t day, Counter& counter);
 bool write(uint32_t day, const Counter& counter);
