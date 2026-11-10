@@ -416,7 +416,7 @@ void PackHomeUi::drawStats(UiScreen& screen, const TPH::Block& block, const fui:
     switch (block.stats[i]) {
       case TPH::Stat::Streak:
         snprintf(value, sizeof(text[i]), "%u", static_cast<unsigned>(stats.streak));
-        metric.unit = tr(stats.streak == 1 ? STR_STATS_DAY : STR_STATS_DAYS);
+        metric.unit = stats.streak == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS);
         metric.label = tr(STR_STATS_READING_STREAK_LBL);
         break;
       case TPH::Stat::Today:
