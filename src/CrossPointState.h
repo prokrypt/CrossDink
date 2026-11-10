@@ -78,9 +78,6 @@ class CrossPointState : public PersistableStore<CrossPointState> {
 
  private:
   bool loadFromBinaryFile();
-  // CRC of the JSON last written to disk; guarded by _mutex.
-  mutable uint32_t lastSavedCrc = 0;
-  mutable bool lastSavedCrcValid = false;
 };
 
 // Helper macro to access settings

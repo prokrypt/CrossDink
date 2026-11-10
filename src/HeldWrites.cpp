@@ -20,7 +20,6 @@
 #if CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY && !defined(SIMULATOR)
 #include <esp_attr.h>
 #include <esp_cache.h>
-#include <esp_system.h>
 #define HELD_IN_PSRAM 1
 #else
 #define HELD_IN_PSRAM 0
@@ -33,8 +32,9 @@ namespace {
 constexpr size_t kCap = HELD_IN_PSRAM ? 16 * 1024 : 8 * 1024;
 constexpr uint32_t kMagic = 0x484C4431;  // "HLD1"; change it when the record layout changes
 
-// Writers get NUL-terminated JSON (JSON never holds a NUL byte).
-bool writePlain(const char* path, const char* data, size_t) {
+// Writers get NUL-terminated JSON (JSON never holds a NUL byte). compare false:
+// the card is known to hold something else, so a writer need not read it back.
+bool writePlain(const char* path, const char* data, size_t, bool) {
   Storage.mkdir("/.crossdink");
   if (!Storage.writeFile(path, String(data))) {
     LOG_ERR("HLD", "Failed to write %s", path);
@@ -43,17 +43,17 @@ bool writePlain(const char* path, const char* data, size_t) {
   return true;
 }
 
-bool writeAtomic(const char* path, const char* data, size_t) {
-  return PersistableStoreBase::writeStringToFileAtomically(path, String(data));
+bool writeAtomic(const char* path, const char* data, size_t, const bool compare) {
+  return PersistableStoreBase::writeStringToFileAtomically(path, String(data), compare);
 }
 
-bool writeSettings(const char*, const char* data, const size_t len) {
-  return CrossPointSettings::writeJsonToCard(data, len);
+bool writeSettings(const char*, const char* data, const size_t len, const bool compare) {
+  return CrossPointSettings::writeJsonToCard(data, len, compare);
 }
 
 struct SlotInfo {
   const char* path;
-  bool (*write)(const char* path, const char* data, size_t len);
+  bool (*write)(const char* path, const char* data, size_t len, bool compare);
 };
 // Same order as HeldWrites::Slot.
 constexpr SlotInfo kSlots[] = {
@@ -101,10 +101,26 @@ EXT_RAM_NOINIT_ATTR Held held;
 Held held;
 #endif
 
-std::mutex heldMutex;  // guards held, writeThrough and the card writes of held data
+std::mutex heldMutex;  // guards held, card, writeThrough and the card writes of held data
 bool ready = false;
 uint8_t writeThrough = 0;  // HeldWrites::Reason bits
 std::atomic<bool> carryArmed{false};
+
+// CRC and length of what the card holds per slot, learned when a store loads the
+// file and after each write; DRAM, so every boot relearns it. A save equal to it
+// is neither held nor written, and a flush that differs skips the read-back.
+struct CardCopy {
+  uint32_t crc;
+  uint32_t len;
+  bool known;
+};
+CardCopy card[kCount] = {};
+
+// Caller holds heldMutex. While a computer shares the card it may change the files.
+bool cardKnown(const size_t i) { return card[i].known && !(writeThrough & HeldWrites::ServesFiles); }
+bool onCard(const size_t i, const uint32_t crc, const size_t len) {
+  return cardKnown(i) && card[i].crc == crc && card[i].len == len;
+}
 
 // ESP.restart() and panics do not write back the PSRAM cache: push each change
 // out at once so a crash reset still finds it.
@@ -169,10 +185,12 @@ bool valid(const Record& r) {
 bool flushLocked(const size_t i) {
   Record& r = held.rec[i];
   if (!ready || r.magic != kMagic) return true;
-  if (!kSlots[i].write(kSlots[i].path, r.data, r.len)) {
+  if (!onCard(i, r.crc, r.len) && !kSlots[i].write(kSlots[i].path, r.data, r.len, !cardKnown(i))) {
+    card[i].known = false;
     LOG_ERR("HLD", "Failed to flush %s; kept for the next flush", kSlots[i].path);
     return false;
   }
+  card[i] = {r.crc, r.len, true};
   clear(r);
   return true;
 }
@@ -192,6 +210,15 @@ int flushAllLocked() {
   }
   if (written) LOG_DBG("HLD", "Flushed %d held file(s)", written);
   return written;
+}
+
+void cardJson(const char* path, const char* data, size_t len) {
+  std::lock_guard<std::mutex> lock(heldMutex);
+  for (size_t i = 0; i < kCount; i++) {
+    if (strcmp(path, kSlots[i].path) != 0) continue;
+    while (data && len > 0 && data[len - 1] == ' ') --len;  // in-place write padding; writers ignore it too
+    card[i] = data ? CardCopy{uzlib_crc32(data, len, 0), static_cast<uint32_t>(len), true} : CardCopy{};
+  }
 }
 
 bool heldJson(const char* path, String& out) {
@@ -214,18 +241,18 @@ void begin() {
   if (ready) return;
   ready = true;
 #if HELD_IN_PSRAM
-  // Power-on PSRAM is random; after a reset (brownout included) the CRC
-  // decides, and deep sleep finds nothing held (sleep flushes first).
-  const bool kept = esp_reset_reason() != ESP_RST_POWERON;
+  // The CRC decides after any reset, power-on too: the reset button reports
+  // POWERON and PSRAM keeps the record; a real power cut leaves it invalid
+  // (a random match is ~2^-32). Deep sleep finds nothing held (sleep flushes first).
   for (size_t i = 0; i < kCount; i++) {
-    if (kept && valid(held.rec[i])) {
+    if (valid(held.rec[i])) {
       LOG_INF("HLD", "Carried %s across the restart (%u B)", kSlots[i].path, static_cast<unsigned>(held.rec[i].len));
     } else {
       clear(held.rec[i]);
     }
   }
   for (auto& f : held.files) {
-    if (kept && validFile(f)) {
+    if (validFile(f)) {
       LOG_INF("HLD", "Carried %s across the restart", f.path);
     } else {
       clearFile(f);
@@ -236,22 +263,30 @@ void begin() {
   for (auto& f : held.files) f.magic = 0;
 #endif
   PersistableStoreBase::heldJson = &heldJson;
+  PersistableStoreBase::cardJson = &cardJson;
 }
 
 bool hold(const Slot slot, const char* data, const size_t len) {
   const size_t i = static_cast<size_t>(slot);
   std::lock_guard<std::mutex> lock(heldMutex);
-  if (!ready) return kSlots[i].write(kSlots[i].path, data, len);  // PSRAM not adopted yet
+  if (!ready) return kSlots[i].write(kSlots[i].path, data, len, true);  // PSRAM not adopted yet
   Record& r = held.rec[i];
+  const uint32_t crc = uzlib_crc32(data, len, 0);
+  if (onCard(i, crc, len)) {
+    clear(r);  // the card already holds this; an older held copy must not land over it
+    return true;
+  }
   if (!HELD_IN_PSRAM || writeThrough || len > kCap) {
     if (len > kCap) {
       LOG_ERR("HLD", "%s is %u B, over the %u B slot; writing now", kSlots[i].path, static_cast<unsigned>(len),
               static_cast<unsigned>(kCap));
     }
-    if (kSlots[i].write(kSlots[i].path, data, len)) {
+    if (kSlots[i].write(kSlots[i].path, data, len, !cardKnown(i))) {
+      card[i] = {crc, static_cast<uint32_t>(len), true};
       clear(r);  // an older held copy must not land over this one later
       return true;
     }
+    card[i].known = false;
     if (len > kCap) return false;
     // Hold it instead: the next flush retries the write.
   }
@@ -260,7 +295,7 @@ bool hold(const Slot slot, const char* data, const size_t len) {
   r.data[len] = '\0';
   r.size = sizeof(Record);
   r.len = static_cast<uint32_t>(len);
-  r.crc = uzlib_crc32(r.data, r.len, 0);
+  r.crc = crc;
   r.magic = kMagic;
   writeBack(&r, offsetof(Record, data) + len + 1);
   return true;
@@ -339,6 +374,9 @@ void setWriteThrough(const Reason reason, const bool on) {
   const uint8_t was = writeThrough;
   writeThrough = static_cast<uint8_t>(on ? (writeThrough | reason) : (writeThrough & ~reason));
   if (was != writeThrough) LOG_INF("HLD", "Write-through reasons %u -> %u", was, writeThrough);
+  if ((was ^ writeThrough) & ServesFiles) {
+    for (auto& c : card) c.known = false;  // a computer may have edited the files
+  }
   if (on) flushAllLocked();
 }
 

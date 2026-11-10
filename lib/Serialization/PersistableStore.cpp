@@ -29,12 +29,12 @@ void PersistableStoreBase::serializeDoc(const JsonDocument& doc, String& out) {
   serializeJson(doc, out);
 }
 
-bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json) {
+bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json, const bool compare) {
   // Two copies rewritten in place, .bak first, so one always parses (readDocFromFile
   // falls back to .bak). No temp file, rename or remove: creating recent.json.tmp
   // took ~139 ms on the card. Padding spaces from a longer save are ignored.
   // Callers may save unchanged values; an identical file is not rewritten.
-  if (Storage.exists(path)) {
+  if (compare && Storage.exists(path)) {
     const String onCard = Storage.readFile(path);
     size_t onCardLen = onCard.length();
     while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
@@ -59,6 +59,7 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
     LOG_ERR("PERSIST", "JSON parse error in held %s: %s; reading the card", path, error.c_str());
     doc.clear();
   }
+  if (cardJson) cardJson(path, nullptr, 0);  // reading the card below: forget what it held until path parses
   std::string recoveryPath;
   const char* readPath = path;
   if (!Storage.exists(path)) {
@@ -78,7 +79,10 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
     LOG_ERR("PERSIST", "Failed to read %s (empty)", readPath);
   } else {
     const auto error = deserializeJson(doc, json);
-    if (!error) return true;
+    if (!error) {
+      if (cardJson && readPath == path) cardJson(path, json.c_str(), json.length());
+      return true;
+    }
     LOG_ERR("PERSIST", "JSON parse error in %s: %s", readPath, error.c_str());
     doc.clear();
   }

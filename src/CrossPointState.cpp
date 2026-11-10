@@ -110,22 +110,8 @@ bool CrossPointState::saveToFile() const {
   toJson(doc);
   String json;
   serializeJson(doc, json);
-
-  // Many callers save unconditionally; skip rewriting what is already on disk.
-  // Every external edit of the card (web, WebDAV, USB Drive) ends in a reboot,
-  // which resets this, so it cannot mask a deleted file.
-  const uint32_t crc = uzlib_crc32(json.c_str(), json.length(), 0);
-  const bool unchanged = lastSavedCrcValid && crc == lastSavedCrc;
-  if (unchanged) return true;
-
-  // Written at the next flush point (HeldWrites), not now.
-  if (!HeldWrites::hold(HeldWrites::Slot::State, json.c_str(), json.length())) {
-    lastSavedCrcValid = false;
-    return false;
-  }
-  lastSavedCrc = crc;
-  lastSavedCrcValid = true;
-  return true;
+  // Written at the next flush point (HeldWrites), not now; what the card already holds is skipped there.
+  return HeldWrites::hold(HeldWrites::Slot::State, json.c_str(), json.length());
 }
 
 bool CrossPointState::loadFromFile() {
@@ -135,16 +121,7 @@ bool CrossPointState::loadFromFile() {
     JsonDocument doc;
     if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
       std::lock_guard<std::mutex> stateLock(_mutex);
-      if (!fromJson(doc.as<JsonVariantConst>())) return false;
-      // The card already holds this state, so a save that changes nothing
-      // (opening a book, reader exit) skips its write.
-      JsonDocument saved;
-      toJson(saved);
-      String json;
-      serializeJson(saved, json);
-      lastSavedCrc = uzlib_crc32(json.c_str(), json.length(), 0);
-      lastSavedCrcValid = true;
-      return true;
+      return fromJson(doc.as<JsonVariantConst>());
     }
   }
 

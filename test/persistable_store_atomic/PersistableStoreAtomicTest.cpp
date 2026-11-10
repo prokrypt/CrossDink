@@ -71,3 +71,42 @@ TEST_F(PersistableStoreAtomicTest, ShorterSavePadsWithSpacesAndStillParses) {
   ASSERT_TRUE(PersistableStoreBase::writeDocToFileAtomically(STORE_PATH, documentWithPath("/b.epub")));
   EXPECT_EQ(Storage.readFile((std::string(STORE_PATH) + ".bak").c_str()), "sentinel");
 }
+
+namespace {
+std::string learnedPath;
+std::string learned;
+bool learnedKnown = false;
+void recordCard(const char* path, const char* data, const size_t len) {
+  learnedPath = path;
+  learnedKnown = data != nullptr;
+  learned = data ? std::string(data, len) : std::string();
+}
+}  // namespace
+
+TEST_F(PersistableStoreAtomicTest, ReportsWhatTheCardHoldsOnlyWhenTheFileItselfParses) {
+  PersistableStoreBase::cardJson = &recordCard;
+  JsonDocument loaded;
+
+  Storage.put(STORE_PATH, R"({"books":[{"path":"/a.epub"}]}  )");
+  ASSERT_TRUE(PersistableStoreBase::readDocFromFile(STORE_PATH, loaded));
+  EXPECT_EQ(learnedPath, STORE_PATH);
+  EXPECT_TRUE(learnedKnown);
+  EXPECT_EQ(learned, R"({"books":[{"path":"/a.epub"}]}  )");
+
+  // Loaded from the .bak copy: the file itself is torn, so nothing is known.
+  Storage.put(std::string(STORE_PATH) + ".bak", R"({"books":[{"path":"/b.epub"}]})");
+  Storage.put(STORE_PATH, "{");
+  ASSERT_TRUE(PersistableStoreBase::readDocFromFile(STORE_PATH, loaded));
+  EXPECT_FALSE(learnedKnown);
+
+  PersistableStoreBase::cardJson = nullptr;
+}
+
+TEST_F(PersistableStoreAtomicTest, WritesWithoutReadingBackWhenToldTheCardDiffers) {
+  ASSERT_TRUE(PersistableStoreBase::writeDocToFileAtomically(STORE_PATH, documentWithPath("/b.epub")));
+  Storage.put(std::string(STORE_PATH) + ".bak", "sentinel");
+  String json;
+  PersistableStoreBase::serializeDoc(documentWithPath("/b.epub"), json);
+  ASSERT_TRUE(PersistableStoreBase::writeStringToFileAtomically(STORE_PATH, json, false));
+  EXPECT_EQ(Storage.readFile((std::string(STORE_PATH) + ".bak").c_str()), json);
+}
