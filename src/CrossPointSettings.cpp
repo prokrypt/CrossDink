@@ -878,7 +878,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   const JsonArrayConst displaySlots = doc["displayStatusBar"].as<JsonArrayConst>();
   if (displaySlots.size() == displayStatusBar.slots.size()) {
     for (unsigned i = 0; i < displayStatusBar.slots.size(); ++i) {
-      const int item = displaySlots[i].as<int>();
+      const int raw = displaySlots[i].as<int>();
+      const int item = importingCrossPoint ? crossInkReaderStatusBarItemValue(raw) : raw;
       if (displaySlots[i].is<int>() && validDisplayStatusBarItemValue(item, true)) {
         displayStatusBar.slots[i] = static_cast<ReaderStatusBarItem>(item);
       } else {
@@ -916,6 +917,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       needsResave = true;
     }
     legacyXtcTopUsesBottom = bars["legacyXtcTopUsesBottom"].as<bool>() ? 1 : 0;
+    if (importingCrossPoint) {
+      for (auto* bar : {&topReaderStatusBar, &bottomReaderStatusBar}) {
+        for (auto& slot : bar->slots) {
+          slot = static_cast<ReaderStatusBarItem>(crossInkReaderStatusBarItemValue(static_cast<int>(slot)));
+        }
+      }
+    }
   }
   if (doc["sleepTimeoutStep"].isNull()) {
     if (!doc["sleepTimeoutMinutes"].isNull()) {

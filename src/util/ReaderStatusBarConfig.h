@@ -24,9 +24,17 @@ enum class ReaderStatusBarItem : uint8_t {
   TitleBook,
   TitleChapter,
   ChapterProgressPercentage,
-  Date,  // upstream stores Date as 10 and ChapterProgressPercentage as 11; CrossInk imports swap them
+  Date,
   Count,
 };
+
+// CrossInk stores Date as 10 and ChapterProgressPercentage as 11, the reverse of CrossDink; settings imported
+// from CrossInk swap them.
+constexpr int crossInkReaderStatusBarItemValue(const int value) {
+  constexpr int chapterProgress = static_cast<int>(ReaderStatusBarItem::ChapterProgressPercentage);
+  constexpr int date = static_cast<int>(ReaderStatusBarItem::Date);
+  return value == chapterProgress ? date : value == date ? chapterProgress : value;
+}
 
 constexpr bool validReaderStatusBarItemValue(const int value, const bool clockAvailable) {
   return value >= 0 && value < static_cast<int>(ReaderStatusBarItem::Count) &&

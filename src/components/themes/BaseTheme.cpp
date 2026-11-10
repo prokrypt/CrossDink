@@ -995,8 +995,7 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
       const int percentWidth = batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, percent);
       const bool showPercent = batteryPercent && allowedWidth >= metrics.batteryWidth + percentWidth;
       const int shownPercentWidth = showPercent ? percentWidth : 0;
-      const bool showWifi =
-          wifiReserve > 0 && allowedWidth >= metrics.batteryWidth + shownPercentWidth + wifiReserve;
+      const bool showWifi = wifiReserve > 0 && allowedWidth >= metrics.batteryWidth + shownPercentWidth + wifiReserve;
       const bool right = top && alignRight;
       const Rect batteryRect{right ? x + allowedWidth - metrics.batteryWidth : x, textY, metrics.batteryWidth,
                              metrics.batteryHeight};

@@ -523,3 +523,9 @@ TEST(DisplayStatusBarConfig, JsonRejectsClockAndDateWithoutRtcInEveryPosition) {
   EXPECT_EQ(display.slots[1], ReaderStatusBarItem::Empty);
   EXPECT_EQ(display.slots[2], ReaderStatusBarItem::Battery);
 }
+
+TEST(ReaderStatusBarConfig, CrossInkImportSwapsDateAndChapterProgressOnly) {
+  EXPECT_EQ(crossInkReaderStatusBarItemValue(10), static_cast<int>(ReaderStatusBarItem::Date));
+  EXPECT_EQ(crossInkReaderStatusBarItemValue(11), static_cast<int>(ReaderStatusBarItem::ChapterProgressPercentage));
+  for (int value = 0; value < 10; ++value) EXPECT_EQ(crossInkReaderStatusBarItemValue(value), value);
+}
