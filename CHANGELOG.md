@@ -87,6 +87,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Clippings sync both ways with the Sync Server: Sync Books, Sync Folder and Sync Clippings download highlights made on other devices (including for books without local clippings), deletions travel to the server, and Back stops a running clipping exchange.
 - Show the publisher’s body font as a disabled Font Family value in the in-book Reader Font menu when Publisher Font is set to All Text; the normal picker stays available when the body uses the reader font.
 - Settings → System → Advanced → Wi-Fi transmit power caps the radio at 15, 8.5, 5 or 2 dBm (Default keeps the radio's own limit). Applies the next time Wi-Fi starts.
+- Choose Clock, Date, Battery, or Empty for the left, center, and right of the status bar on Home, menus and settings screens (Display > Status Bar); the Wi-Fi indicator sits beside the Battery item. Reader status bars can show the date too, dates follow the selected date format, and month names are translated.
 ### Changed
 - The Touch Reader Controls toggle is gone from device and web settings; Disable Touchscreen remains the full reader touch lock. A saved Off value no longer blocks touch gestures.
 - Reading stats dashboard: shorter labels in the community translations (German, Spanish, Polish and 24 more) so they fit their cards like the English ones.
