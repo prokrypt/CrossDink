@@ -1,0 +1,6 @@
+{
+  "title": "Reading",
+  "style": "grid",
+  "columns": 2,
+  "items": ["folder:/Books", "saved", "stats", "files", "opds", "transfer"]
+}
