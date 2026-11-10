@@ -215,6 +215,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - WebDAV uploads no longer stall the web server: the file list, downloads and other requests keep answering while a large file is being uploaded.
 - Faster chapter indexing with SD fonts (duplicate-character removal no longer slows down on large or CJK chapters), smaller font lookup tables in RAM for fonts that mix basic and extended Unicode, and Cover Grid Home no longer repaints an identical frame after opening.
 - Recent books and Goodies knobs save in place to two copies instead of through a temporary file, so a save no longer creates a file on the SD card (about 140 ms on slow cards); if a save is cut off, the backup copy loads.
+- Settings, the recent books list and reader state skip their SD card read-back and write at sleep when nothing changed, and pressing the reset button keeps changes made since the last sleep instead of dropping them.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
