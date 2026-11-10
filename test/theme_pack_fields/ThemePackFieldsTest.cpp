@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 #include "components/ThemePackFields.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
@@ -70,4 +75,53 @@ TEST(ThemePackFields, ApplyWritesOnlyTheField) {
   EXPECT_EQ(m.tabBarAppearance, ThemeTabBarAppearance::BorderedText);
   EXPECT_EQ(m.listWithSubtitleRowHeight, LyraMetrics::values.listWithSubtitleRowHeight);
   EXPECT_EQ(m.headerHeight, LyraMetrics::values.headerHeight);
+}
+
+namespace {
+
+std::string readRepoFile(const char* path) {
+  std::ifstream in(std::string(REPO_ROOT_DIR) + "/" + path);
+  EXPECT_TRUE(in) << path;
+  return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+}  // namespace
+
+// docs/themes.md lists every field with its range, one table row each.
+TEST(ThemePackFields, DocsListEveryFieldAndRange) {
+  const std::string file = readRepoFile("docs/themes.md");
+  const size_t begin = file.find("### Metrics");
+  ASSERT_NE(begin, std::string::npos);
+  const std::string doc = file.substr(begin, file.find("\n## ", begin) - begin);
+  int rows = 0;
+  for (size_t at = doc.find("\n| `"); at != std::string::npos; at = doc.find("\n| `", at + 1)) ++rows;
+  for (int i = 0; i < TPF::count(); ++i) {
+    const auto& f = TPF::at(i);
+    char range[32];
+    if (f.kind == TPF::Kind::Bool) {
+      std::snprintf(range, sizeof(range), "true or false");
+    } else if (f.kind == TPF::Kind::Ratio) {
+      std::snprintf(range, sizeof(range), "%g to %g", f.min / 1000.0, f.max / 1000.0);
+    } else {
+      std::snprintf(range, sizeof(range), "%d to %d", f.min, f.max);
+    }
+    const std::string row = std::string("\n| `") + f.key + "` | " + range + " |";
+    EXPECT_NE(doc.find(row), std::string::npos) << "docs/themes.md lacks" << row;
+  }
+  EXPECT_EQ(rows, TPF::count()) << "docs/themes.md has rows for fields that no longer exist";
+}
+
+// The sample packs' metrics are all known and in range.
+TEST(ThemePackFields, SamplePacksUseKnownMetrics) {
+  for (const char* path : {"docs/themes/bold/theme.json", "docs/themes/shelf/theme.json"}) {
+    JsonDocument doc;
+    ASSERT_FALSE(deserializeJson(doc, readRepoFile(path))) << path;
+    ASSERT_FALSE(doc["metrics"].isNull()) << path;
+    for (const JsonPairConst kv : doc["metrics"].as<JsonObjectConst>()) {
+      const int field = TPF::find(kv.key().c_str());
+      ASSERT_GE(field, 0) << path << ": " << kv.key().c_str();
+      int32_t value = 0;
+      EXPECT_EQ(TPF::parse(field, kv.value(), value), TPF::Parse::Ok) << path << ": " << kv.key().c_str();
+    }
+  }
 }

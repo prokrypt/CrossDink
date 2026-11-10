@@ -15,4 +15,5 @@ target_include_directories(ThemePackHomeTest PRIVATE
   ${arduinojson_SOURCE_DIR}/src
 )
 target_link_libraries(ThemePackHomeTest PRIVATE crosspoint_test_common GTest::gtest_main)
+target_compile_definitions(ThemePackHomeTest PRIVATE REPO_ROOT_DIR="${REPO_ROOT}")
 gtest_discover_tests(ThemePackHomeTest)

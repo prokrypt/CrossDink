@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <fstream>
 #include <string>
 
+#include "Logging.h"
 #include "components/ThemePackHome.h"
 
 namespace TPH = ThemePackHome;
@@ -193,4 +195,32 @@ TEST(ThemePackHome, RejectsPagesWithNothingUsable) {
   EXPECT_FALSE(parsePage(R"({"title": "Empty"})", l));
   EXPECT_FALSE(parsePage(R"({"items": ["nope", "folder:relative"]})", l));
   EXPECT_FALSE(parsePage(R"({"items": "library"})", l));
+}
+
+namespace {
+
+bool parseFile(const char* path, const bool page, TPH::Layout& out) {
+  std::ifstream in(std::string(REPO_ROOT_DIR) + "/" + path);
+  EXPECT_TRUE(in) << path;
+  JsonDocument doc;
+  EXPECT_FALSE(deserializeJson(doc, in)) << path;
+  return page ? TPH::parsePage(doc.as<JsonObjectConst>(), path, "Reading", out)
+              : TPH::parse(doc.as<JsonObjectConst>(), path, out);
+}
+
+}  // namespace
+
+// The sample packs in docs/themes parse with no logged problem.
+TEST(ThemePackHome, SamplePacksParseCleanly) {
+  const int before = gLogErrors;
+  TPH::Layout l;
+  ASSERT_TRUE(parseFile("docs/themes/bold/home.json", false, l));
+  EXPECT_EQ(l.blockCount, 4);
+  ASSERT_TRUE(parseFile("docs/themes/shelf/home.json", false, l));
+  EXPECT_EQ(l.imageCount, 1);
+  EXPECT_EQ(l.entries[2].action, TPH::Action::Page);
+  EXPECT_STREQ(l.entries[2].path, "Reading");
+  ASSERT_TRUE(parseFile("docs/themes/shelf/pages/Reading.json", true, l));
+  EXPECT_STREQ(l.texts[0], "Reading");
+  EXPECT_EQ(gLogErrors, before);
 }

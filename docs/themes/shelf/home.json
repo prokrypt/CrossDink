@@ -1,0 +1,9 @@
+{
+  "blocks": [
+    {"type": "header"},
+    {"type": "clock"},
+    {"type": "covers", "style": "grid", "count": 6, "columns": 3, "height": "flex"},
+    {"type": "image", "file": "shelf.bmp"},
+    {"type": "menu", "style": "list", "items": ["continue", "library", "page:Reading", "settings"]}
+  ]
+}

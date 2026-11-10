@@ -1,0 +1,13 @@
+{
+  "name": "Shelf",
+  "base": "minimal",
+  "metrics": {
+    "listRowRadius": 12,
+    "listSelectionStyle": 4,
+    "listRowGap": 4,
+    "headerUnderlineSize": 1,
+    "headerTitleAlign": 1,
+    "popupCornerRadius": 16,
+    "optionPopupSelectionRadius": 12
+  }
+}

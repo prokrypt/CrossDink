@@ -1,0 +1,28 @@
+{
+  "name": "Bold",
+  "base": "lyra",
+  "metrics": {
+    "listRowHeight": 48,
+    "listWithSubtitleRowHeight": 72,
+    "listRowRadius": 0,
+    "listSelectionStyle": 0,
+    "listTitleBold": true,
+    "headerUnderlineSize": 4,
+    "menuRowHeight": 64,
+    "popupFrameThickness": 3,
+    "popupCornerRadius": 0,
+    "popupTextBold": true,
+    "optionPopupSelectionRadius": 0,
+    "progressBarHeight": 12
+  },
+  "icons": {
+    "folder": ["icons/folder24.bmp", "icons/folder32.bmp"],
+    "library": ["icons/library24.bmp", "icons/library32.bmp"],
+    "book": ["icons/book24.bmp", "icons/book32.bmp"],
+    "settings": ["icons/settings24.bmp", "icons/settings32.bmp"],
+    "chart": ["icons/chart24.bmp", "icons/chart32.bmp"],
+    "recent": ["icons/recent24.bmp", "icons/recent32.bmp"],
+    "opds": ["icons/opds24.bmp", "icons/opds32.bmp"],
+    "transfer": ["icons/transfer24.bmp", "icons/transfer32.bmp"]
+  }
+}

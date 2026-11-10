@@ -1,0 +1,9 @@
+{
+  "blocks": [
+    {"type": "header"},
+    {"type": "covers", "style": "single", "height": "35%"},
+    {"type": "stats", "items": ["today", "streak", "book_progress"]},
+    {"type": "menu", "style": "grid", "columns": 3,
+     "items": ["library", "files", "opds", "stats", "transfer", "settings"]}
+  ]
+}
