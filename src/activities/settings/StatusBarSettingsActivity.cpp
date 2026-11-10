@@ -112,6 +112,13 @@ const char* thicknessLabel(const uint8_t thickness) {
   }
 }
 
+// Root: Top, Bottom, XTC, text size. Display context: Left, Center, Right, text size.
+constexpr int ROOT_TEXT_SIZE_ROW = 3;
+constexpr int DISPLAY_TEXT_SIZE_ROW = 3;
+constexpr StrId textSizeNames[] = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE};
+
+const char* textSizeLabel(const uint8_t size) { return I18N.get(textSizeNames[std::min<uint8_t>(size, 2)]); }
+
 const StrId percentageFormatNames[] = {StrId::STR_PERCENTAGE_FORMAT_WHOLE, StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
                                        StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS};
 }  // namespace
@@ -160,8 +167,9 @@ ReaderStatusBarPosition StatusBarSettingsActivity::selectedPosition() const {
 }
 
 void StatusBarSettingsActivity::refreshItemCount() {
-  visibleItemCount = displayContext || view == View::Root
-                         ? 3
+  visibleItemCount = displayContext ? DISPLAY_TEXT_SIZE_ROW + 1
+                     : view == View::Root
+                         ? ROOT_TEXT_SIZE_ROW + 1
                          : (SETTINGS.readerStatusBar(selectedPosition()).centered ? SEPARATOR : CENTER_ITEMS) + 1;
   selectedIndex = std::clamp(selectedIndex, 0, visibleItemCount - 1);
 }
@@ -170,8 +178,8 @@ int StatusBarSettingsActivity::previewHeight() const {
   if (view == View::Root) return 0;
   const auto& metrics = UITheme::getInstance().getMetrics();
   return renderer.getLineHeight(UI_10_FONT_ID) + 18 +
-         (displayContext ? metrics.statusBarVerticalMargin + ReaderStatusBarConfig::TOP_TEXT_INSET
-                         : UITheme::getReaderStatusBarHeight(selectedPosition())) +
+         (displayContext ? UITheme::getDisplayStatusBarTextHeight(renderer) + ReaderStatusBarConfig::TOP_TEXT_INSET
+                         : UITheme::getReaderStatusBarHeight(selectedPosition(), renderer)) +
          metrics.verticalSpacing;
 }
 
@@ -255,6 +263,21 @@ void StatusBarSettingsActivity::handleSelection() {
 }
 
 void StatusBarSettingsActivity::openOptionPicker() {
+  if ((displayContext && selectedIndex == DISPLAY_TEXT_SIZE_ROW) ||
+      (!displayContext && view == View::Root && selectedIndex == ROOT_TEXT_SIZE_ROW)) {
+    optionPopup.show(StrId::STR_STATUS_BAR_TEXT_SIZE, textSizeNames, 3,
+                     displayContext ? SETTINGS.displayStatusBarTextSize : SETTINGS.statusBarTextSize,
+                     [this](const int selected) {
+                       if (displayContext)
+                         SETTINGS.displayStatusBarTextSize = static_cast<uint8_t>(selected);
+                       else
+                         SETTINGS.statusBarTextSize = static_cast<uint8_t>(selected);
+                       SETTINGS.saveToFile();
+                       requestUpdate();
+                     });
+    requestUpdate();
+    return;
+  }
   if (view == View::Root) {
     const std::vector<std::string> options = {tr(STR_HIDE), tr(STR_BOTTOM), tr(STR_TOP), tr(STR_STATUS_BAR_BOTH)};
     optionPopup.show(StrId::STR_XTC_STATUS_BAR, options, SETTINGS.xtcStatusBarMode, [this](const int selected) {
@@ -394,10 +417,16 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   for (int i = 0; i < visibleItemCount; ++i) {
     fui::ListItem row;
     row.actionValue = static_cast<int16_t>(i);
-    if (displayContext) {
+    if (displayContext && i == DISPLAY_TEXT_SIZE_ROW) {
+      row.label = tr(STR_STATUS_BAR_TEXT_SIZE);
+      row.value = textSizeLabel(SETTINGS.displayStatusBarTextSize);
+    } else if (displayContext) {
       row.label = i == 0 ? tr(STR_STATUS_BAR_LEFT) : i == 1 ? tr(STR_CENTER) : tr(STR_STATUS_BAR_RIGHT);
       values[i] = itemLabel(SETTINGS.displayStatusBar.slots[i]);
       row.value = values[i].c_str();
+    } else if (view == View::Root && i == ROOT_TEXT_SIZE_ROW) {
+      row.label = tr(STR_STATUS_BAR_TEXT_SIZE);
+      row.value = textSizeLabel(SETTINGS.statusBarTextSize);
     } else if (view == View::Root) {
       row.label = i == 0 ? tr(STR_TOP_STATUS_BAR) : i == 1 ? tr(STR_BOTTOM_STATUS_BAR) : tr(STR_XTC_STATUS_BAR);
       row.value = i == 2 ? xtcModeLabel(SETTINGS.xtcStatusBarMode) : ">";
@@ -502,8 +531,9 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   if (view != View::Root) {
     const auto position = selectedPosition();
-    const int barHeight = displayContext ? metrics.statusBarVerticalMargin + ReaderStatusBarConfig::TOP_TEXT_INSET
-                                         : UITheme::getReaderStatusBarHeight(position);
+    const int barHeight = displayContext
+                              ? UITheme::getDisplayStatusBarTextHeight(renderer) + ReaderStatusBarConfig::TOP_TEXT_INSET
+                              : UITheme::getReaderStatusBarHeight(position, renderer);
     const int previewOriginY =
         view == View::Top ? topPreviewOriginY() : safe.y + safe.height - metrics.verticalSpacing - barHeight;
     const int labelY = view == View::Top ? previewOriginY + barHeight + 9

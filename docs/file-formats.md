@@ -17,6 +17,14 @@ spacing, and ligatures are skipped while it is not `0`. It is part of the EPUB
 section layout identity and the TXT index header, so a changed value rebuilds
 those caches around the saved text position.
 
+## Settings: status bar text size
+
+`statusBarTextSize` in the settings JSON selects Small (`0`, Inter 8), Medium (`1`, Inter 10) or Large (`2`,
+Inter 12) for both reader status bars; `displayStatusBarTextSize` does the same for the global status row on Home,
+menus and settings screens. Missing or invalid values default to Small. Larger reader text reserves more reading
+space through the existing layout dimensions, so EPUB layout caches rebuild automatically; no binary cache format
+change or manual cache reset is required. The global size grows the header and Home top padding only.
+
 ## TXT `index.bin`
 
 Version 5 adds signed `characterSpacing` (-5..5) after the source file size in

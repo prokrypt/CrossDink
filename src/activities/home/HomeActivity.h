@@ -111,6 +111,7 @@ class HomeActivity final : public Activity {
   ScreenInsets insetsBeforeFrontlightPanel;
   uint8_t themeBeforeFrontlightPanel = 0;
   uint8_t scaleBeforeFrontlightPanel = 0;
+  uint8_t statusSizeBeforeFrontlightPanel = 0;
   char themePackBeforeFrontlightPanel[sizeof(CrossPointSettings::uiThemePack)] = {};
 
   std::vector<RecentBook> recentBooks;

@@ -84,7 +84,7 @@ inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 :
 inline bool readerForegroundBlack() { return true; }
 
 inline int getTopStatusBarReservedHeight(const GfxRenderer& renderer) {
-  const int statusBarHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top);
+  const int statusBarHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer);
   if (statusBarHeight <= 0) {
     return 0;
   }
@@ -99,12 +99,12 @@ inline bool bottomStatusBarHasTextLane() {
   return SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hasTextItems(halClock.isAvailable());
 }
 
-inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+inline int getReaderFooterReservedHeight(const GfxRenderer& renderer, const bool automaticPageTurnActive) {
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight(renderer);
   if (automaticPageTurnActive && !bottomStatusBarHasTextLane()) {
     const int autoTurnBarHeight =
         readerStatusBarTotalHeight(ReaderStatusBarPosition::Bottom, true, UITheme::getProgressBarHeight(),
-                                   UITheme::getInstance().getMetrics().statusBarVerticalMargin);
+                                   UITheme::getReaderStatusBarTextHeight(renderer));
     return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
                     std::max(statusBarHeight, autoTurnBarHeight) + STATUS_BAR_TEXT_PADDING);
   }

@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -56,9 +57,15 @@ class UITheme {
   static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
                                        bool allowLegacyFallback = true);
   static UIIcon getFileIcon(const std::string& filename);
-  static int getStatusBarHeight();
+  static int getStatusBarHeight(const GfxRenderer& renderer);
+  // Global (Home, menus) and reader status bar text: Small (Inter 8), Medium (Inter 10) or Large (Inter 12).
+  static int getDisplayStatusBarFontId();
+  static int getDisplayStatusBarTextHeight(const GfxRenderer& renderer);
+  static int getDisplayStatusBarHeightIncrease();
+  static int getReaderStatusBarFontId();
+  static int getReaderStatusBarTextHeight(const GfxRenderer& renderer);
   static int getProgressBarHeight();
-  static int getReaderStatusBarHeight(ReaderStatusBarPosition position);
+  static int getReaderStatusBarHeight(ReaderStatusBarPosition position, const GfxRenderer& renderer);
   static int getReaderProgressBarHeight(ReaderStatusBarPosition position);
   // Device-specific top offset for the clock, battery, and reserved status-bar lane.
   static int getTopStatusBarInset(const GfxRenderer& renderer);
@@ -73,9 +80,11 @@ class UITheme {
  private:
   const ThemeMetrics* currentMetrics;
   std::unique_ptr<BaseTheme> currentTheme;
-  mutable ThemeMetrics adjustedMetrics;
+  mutable ThemeMetrics adjustedMetrics[2];
+  mutable std::atomic<uint8_t> publishedMetrics{0};
   mutable bool metricsValid = false;
   mutable bool metricsForTouch = false;
+  mutable uint8_t metricsForTextSize = 0;
   uint16_t themeGeneration = 0;
 };
 

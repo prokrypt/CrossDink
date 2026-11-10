@@ -370,7 +370,9 @@ let allSettings = [];
       [statusBars.labels.left, statusBars.labels.center, statusBars.labels.right].map(function(label, index) {
         return statusBarRow(label, statusBarSelect('display-slot-' + index, choices,
           statusBars.display[index], 'statusBarChanged()'));
-      }).join('');
+      }).join('') + statusBarRow(statusBars.labels.textSize, statusBarSelect('display-text-size',
+        statusBars.textSizes.map(function(label, index) { return { value: index, label: label }; }),
+        statusBars.displayTextSize, 'statusBarChanged()'));
   }
 
   function readStatusBarForm(position) {
@@ -452,6 +454,7 @@ let allSettings = [];
           display: statusBars.display.map(function(_, index) {
             return Number(document.getElementById('display-slot-' + index).value);
           }),
+          displayTextSize: Number(document.getElementById('display-text-size').value),
           xtcMode: Number(document.getElementById('bar-xtc-mode').value) })
       });
       if (!response.ok) throw new Error(await response.text());

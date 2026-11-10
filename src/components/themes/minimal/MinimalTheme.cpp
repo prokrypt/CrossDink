@@ -390,8 +390,9 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
     const int titleRight = rect.x + rect.width - 12;
     const int maxTitleWidth = titleRight - rect.x - titleInsetX - themed(MinimalMetrics::values).contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(titleFontId, title, maxTitleWidth, EpdFontFamily::BOLD);
-    renderer.drawText(titleFontId, rect.x + titleInsetX, rect.y + themed(MinimalMetrics::values).batteryBarHeight + 3,
-                      truncatedTitle.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawText(titleFontId, rect.x + titleInsetX,
+                      rect.y + UITheme::getInstance().getMetrics().batteryBarHeight + 3, truncatedTitle.c_str(), true,
+                      EpdFontFamily::BOLD);
     renderer.drawLine(rect.x, rect.y + rect.height - 3, rect.x + rect.width - 1, rect.y + rect.height - 3, 3, true);
   }
 
@@ -709,7 +710,7 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
                                    const float progressPercent, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+  const Rect contentRect{0, UITheme::getInstance().getMetrics().homeTopPadding, renderer.getScreenWidth(),
                          themed(MinimalMetrics::values).homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
@@ -721,7 +722,7 @@ void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const Recen
                                         const float progressPercent, const bool inverted) const {
   drawSleepScreen(renderer, book, stats, progressPercent, inverted);
   if (globalStats != nullptr) {
-    const Rect contentRect{0, themed(MinimalMetrics::values).homeTopPadding, renderer.getScreenWidth(),
+    const Rect contentRect{0, UITheme::getInstance().getMetrics().homeTopPadding, renderer.getScreenWidth(),
                            themed(MinimalMetrics::values).homeCoverTileHeight};
     const Rect coverRect = coverRectForScreen(renderer, contentRect);
     drawStatsOverlay(renderer, *globalStats, coverRect, progressPercent, inverted);

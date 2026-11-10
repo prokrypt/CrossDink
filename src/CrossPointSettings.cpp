@@ -630,9 +630,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       continue;
     }
 
-    // A missing key in an older export restores bidirectional tilt, even if this session changed it.
-    const uint8_t fieldDefault =
-        info.valuePtr == &CrossPointSettings::tiltNextPageOnly ? uint8_t{0} : this->*(info.valuePtr);
+    // A missing key in an older export restores bidirectional tilt and the Small global status text, even if
+    // this session changed them.
+    const uint8_t fieldDefault = info.valuePtr == &CrossPointSettings::tiltNextPageOnly ||
+                                         info.valuePtr == &CrossPointSettings::displayStatusBarTextSize
+                                     ? uint8_t{0}
+                                     : this->*(info.valuePtr);
     uint8_t value = doc[info.key] | fieldDefault;
     // CrossPoint stores normal spacing as 100%; CrossDink stores it as level 0.
     // Keep native levels intact, including files at the legacy path.
