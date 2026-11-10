@@ -89,6 +89,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Settings → System → Advanced → Wi-Fi transmit power caps the radio at 15, 8.5, 5 or 2 dBm (Default keeps the radio's own limit). Applies the next time Wi-Fi starts.
 - Choose Clock, Date, Battery, or Empty for the left, center, and right of the status bar on Home, menus and settings screens (Display > Status Bar); the Wi-Fi indicator sits beside the Battery item. Reader status bars can show the date too, dates follow the selected date format, and month names are translated.
 - Choose Small, Medium or Large status bar text, separately for the reader bars (Status Bars > Status Bar Text Size) and for the status row on Home, menus and settings screens (Display > Status Bar).
+- Hide the top or bottom reader status bar from Status Bar settings or the web status bar editor. Its items stay saved, EPUB and TXT pages reflow to use the space, and XTC clears the strip.
 ### Changed
 - The Touch Reader Controls toggle is gone from device and web settings; Disable Touchscreen remains the full reader touch lock. A saved Off value no longer blocks touch gestures.
 - Reading stats dashboard: shorter labels in the community translations (German, Spanish, Polish and 24 more) so they fit their cards like the English ones.
@@ -218,6 +219,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Faster chapter indexing with SD fonts (duplicate-character removal no longer slows down on large or CJK chapters), smaller font lookup tables in RAM for fonts that mix basic and extended Unicode, and Cover Grid Home no longer repaints an identical frame after opening.
 - Recent books and Goodies knobs save in place to two copies instead of through a temporary file, so a save no longer creates a file on the SD card (about 140 ms on slow cards); if a save is cut off, the backup copy loads.
 - Settings, the recent books list and reader state skip their SD card read-back and write at sleep when nothing changed, and pressing the reset button keeps changes made since the last sleep instead of dropping them.
+- Each status bar (top, bottom and the global status row) now has its own Battery style: Icon + %, Icon Only or % Only. It replaces Hide Battery %, and existing choices carry over once. The Wi-Fi glyph stays beside the battery in every style.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
