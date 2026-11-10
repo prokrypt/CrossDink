@@ -64,8 +64,19 @@ std::string remoteIp;
 // The toggle is SETTINGS.goodiesWifiRemote, so it survives Wi-Fi screens (File
 // Transfer, Calibre, OPDS, Nearby), the silent restarts they end with, sleep and
 // power-off. RTC_NOINIT keeps the network across ESP.restart() and deep sleep;
-// after power-on it is garbage and the last connected network is used instead.
-RTC_NOINIT_ATTR char remoteSsid[33];
+// after power-on it is garbage (no magic) and the last connected network is used instead.
+struct RemoteSsid {
+  uint32_t magic;
+  char ssid[33];
+};
+constexpr uint32_t REMOTE_SSID_MAGIC = 0x52535344;  // "RSSD", CrossDink-only
+RTC_NOINIT_ATTR RemoteSsid rtcRemoteSsid;
+
+const char* remoteSsid() {
+  if (rtcRemoteSsid.magic != REMOTE_SSID_MAGIC) return "";
+  rtcRemoteSsid.ssid[sizeof(rtcRemoteSsid.ssid) - 1] = '\0';
+  return rtcRemoteSsid.ssid;
+}
 // rejoining, joinPending and rejoinDue are read by the render task through joining().
 std::atomic<bool> rejoining{false};
 bool rejoinNow = false;     // Toggled on in Goodies: skip the boot and idle waits
@@ -191,7 +202,8 @@ bool startRemote(const bool ownsRadio = true) {
   }
   MDNS.begin(NET_HOSTNAME);
   remoteIp = WiFi.localIP().toString().c_str();
-  snprintf(remoteSsid, sizeof(remoteSsid), "%s", WiFi.SSID().c_str());
+  snprintf(rtcRemoteSsid.ssid, sizeof(rtcRemoteSsid.ssid), "%s", WiFi.SSID().c_str());
+  rtcRemoteSsid.magic = REMOTE_SSID_MAGIC;
   rejoinRetryMs = 0;
   linkLostAt = 0;
   setRemoteWanted(true);
@@ -201,8 +213,7 @@ bool startRemote(const bool ownsRadio = true) {
 
 void joinTaskMain(void*) {
   const uint32_t startedAt = millis();
-  remoteSsid[sizeof(remoteSsid) - 1] = '\0';
-  auto cred = WIFI_STORE.findCredential(remoteSsid);
+  auto cred = WIFI_STORE.findCredential(remoteSsid());
   if (!cred) cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
   JoinOutcome outcome = JOIN_NO_NETWORK;
   if (cred) {
@@ -272,8 +283,7 @@ bool takePickerRequest() {
 
 bool keepsStation() {
   if (!remoteWanted() || WiFi.getMode() != WIFI_MODE_STA || !hasActiveStationWifiConnection()) return false;
-  remoteSsid[sizeof(remoteSsid) - 1] = '\0';
-  return WiFi.SSID() == remoteSsid;
+  return WiFi.SSID() == remoteSsid();
 }
 
 void pause(const bool keepStation) {

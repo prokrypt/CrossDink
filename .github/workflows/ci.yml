@@ -276,7 +276,7 @@ jobs:
           set -euo pipefail
           {
             echo "## ${{ matrix.environment }} firmware build stats"
-            grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
+            grep -E "RAM:\s|Flash:\s|RTC slow memory:" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Largest symbols and source files
