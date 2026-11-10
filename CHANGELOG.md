@@ -93,6 +93,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - SD theme packs can lay out Home with a `home.json` next to `theme.json`: a list of blocks (header, covers as one card, a row or a grid, reading stats, a menu list or grid, clock, text, 1-bit images, spacers), each a fixed % of the screen or flexible. Menu entries come from a fixed set with the built-in translated labels, plus folders and books on the card; Settings is always kept. A missing or broken `home.json` keeps the base theme's Home.
 - SD theme packs can add their own pages: `pages/<name>.json` holds a title and a list or grid of the same entries a Home menu takes (built-in screens, folders, books, other pages), opened from a `page:<name>` entry on Home or another page. Back always returns; a missing or broken page file shows a toast and stays put.
 - SD theme pack guide (docs/themes.md) with two sample packs, Bold and Shelf, in docs/themes/.
+- Themes page in the File Transfer web portal: upload a theme pack folder, pick a pack, and see every problem its last load found.
 ### Changed
 - The Touch Reader Controls toggle is gone from device and web settings; Disable Touchscreen remains the full reader touch lock. A saved Off value no longer blocks touch gestures.
 - Reading stats dashboard: shorter labels in the community translations (German, Spanish, Polish and 24 more) so they fit their cards like the English ones.
