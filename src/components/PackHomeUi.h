@@ -14,7 +14,8 @@
 #include "components/media/metric-card.h"
 
 // Home laid out by the active theme pack's home.json (ThemePackHome.h): its blocks
-// stacked over the Home area and drawn with FreeInkUI components. Recent books and
+// stacked over the Home area and drawn with FreeInkUI components. User pages
+// (PackPageActivity) draw their one menu block with it too. Recent books and
 // menu entries are the focus stops, in block order and left to right inside a
 // block. HomeActivity owns the focus and opens what is picked; drawing reads only
 // RAM (covers come from the PSRAM cover cache once drawn).
@@ -41,13 +42,16 @@ class PackHomeUi final : public UiAppHost<kUiLargeInteractions, kUiLargeHandlers
   };
   // Which built-in entries have something to open; the others are left out.
   struct Available {
+    bool continueReading = false;
     bool bookmarks = false;
     bool clippings = false;
     bool opds = false;
     bool stats = false;
   };
 
-  PackHomeUi(GfxRenderer& renderer, const Layout& layout);
+  // top: where the blocks start; -1 for Home's (under the status header). User pages
+  // pass the bottom of their back-button header.
+  PackHomeUi(GfxRenderer& renderer, const Layout& layout, int16_t top = -1);
   void begin(const std::vector<RecentBook>& books, Available available);
   bool shows(ThemePackHome::Stat stat) const;
   bool showsCard(int book) const;  // a single-style covers block shows it, with its %
@@ -60,6 +64,7 @@ class PackHomeUi final : public UiAppHost<kUiLargeInteractions, kUiLargeHandlers
   int tappedStop(const MappedInputManager& input);
   HomeCoverSlots& covers() { return coverSlots; }
   int bookCount() const { return layout.bookCount; }
+  const Available& has() const { return available; }
   Stats stats;  // written by Home before each render
   // Book cards' %, -1 when unknown; begin() clears it and Home fills it for showsCard() books.
   std::array<float, ThemePackHome::kMaxBooks> progress{};
@@ -85,6 +90,7 @@ class PackHomeUi final : public UiAppHost<kUiLargeInteractions, kUiLargeHandlers
     return selected >= blockStart[block] && selected < blockStart[block] + blockStops[block];
   }
 
+  int16_t top;
   Layout layout;  // a copy: Home outlives a pack reload under the Settings drawer
   HomeCoverSlots coverSlots;
   GfxRenderer& renderer;

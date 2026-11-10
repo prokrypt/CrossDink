@@ -164,6 +164,8 @@ class HomeActivity final : public Activity {
   void activateCoverGridSelection();
   void beginPackHome();
   void activatePackSelection();
+  // Opens a pack Home or user page entry; path: its card path or page id.
+  void openPackEntry(ThemePackHome::Action action, const char* path);
   // The cover slots of Cover Grid or a pack Home, which size covers from their own layout.
   HomeCoverSlots* coverSlots() const;
   void loadAllBookStats();

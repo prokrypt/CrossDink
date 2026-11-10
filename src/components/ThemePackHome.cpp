@@ -40,6 +40,12 @@ bool copyText(char* dst, const size_t size, const char* src) {
 // An absolute card path for folder: and book: entries.
 bool validCardPath(const char* path) { return path[0] == '/' && !std::strstr(path, "..") && !std::strchr(path, '\\'); }
 
+// A page id: a file name in the pack's pages folder, without .json.
+bool validPageId(const char* id) {
+  const size_t len = std::strlen(id);
+  return len > 0 && len < kTextBytes && id[0] != '.' && !std::strchr(id, '/') && !std::strchr(id, '\\');
+}
+
 // A file inside the pack folder.
 bool validPackFile(const char* path) {
   return path[0] != '\0' && path[0] != '/' && !std::strstr(path, "..") && !std::strchr(path, '\\');
@@ -68,7 +74,15 @@ void parseEntry(const char* item, const char* file, const int block, Layout& out
   }
   Entry entry;
   const bool folder = std::strncmp(item, "folder:", 7) == 0;
-  if (folder || std::strncmp(item, "book:", 5) == 0) {
+  if (std::strncmp(item, "page:", 5) == 0) {
+    if (!validPageId(item + 5)) {
+      LOG_ERR("THM", "%s: block %d: %s needs a file name under %u bytes, ignored", file, block, item,
+              static_cast<unsigned>(kTextBytes));
+      return;
+    }
+    copyText(entry.path, sizeof(entry.path), item + 5);
+    entry.action = Action::Page;
+  } else if (folder || std::strncmp(item, "book:", 5) == 0) {
     const char* path = item + (folder ? 7 : 5);
     if (!validCardPath(path) || !copyText(entry.path, sizeof(entry.path), path)) {
       LOG_ERR("THM", "%s: block %d: %s needs an absolute card path under %u bytes, ignored", file, block, item,
@@ -91,6 +105,20 @@ void parseEntry(const char* item, const char* file, const int block, Layout& out
 #endif
   }
   out.entries[out.entryCount++] = entry;
+}
+
+// style list or grid, columns, items: a menu block's, or a user page's.
+void parseMenu(const JsonObjectConst obj, const char* file, const int index, Block& block, Layout& out) {
+  const char* style = obj["style"] | "";
+  block.type = BlockType::Menu;
+  block.style = std::strcmp(style, "grid") == 0 ? Style::Grid : Style::List;
+  if (style[0] != '\0' && std::strcmp(style, "grid") && std::strcmp(style, "list")) {
+    LOG_ERR("THM", "%s: block %d: menu style %s unknown, using list", file, index, style);
+  }
+  block.columns = block.style == Style::Grid ? parseCount(obj["columns"], 2, kMaxColumns) : 1;
+  block.first = out.entryCount;
+  for (const JsonVariantConst item : obj["items"].as<JsonArrayConst>()) parseEntry(item | "", file, index, out);
+  block.count = static_cast<uint8_t>(out.entryCount - block.first);
 }
 
 void parseBlock(const JsonObjectConst obj, const char* file, const int index, Layout& out) {
@@ -142,14 +170,7 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
       }
       break;
     case BlockType::Menu:
-      block.style = std::strcmp(style, "grid") == 0 ? Style::Grid : Style::List;
-      if (style[0] != '\0' && std::strcmp(style, "grid") && std::strcmp(style, "list")) {
-        LOG_ERR("THM", "%s: block %d: menu style %s unknown, using list", file, index, style);
-      }
-      block.columns = block.style == Style::Grid ? parseCount(obj["columns"], 2, kMaxColumns) : 1;
-      block.first = out.entryCount;
-      for (const JsonVariantConst item : obj["items"].as<JsonArrayConst>()) parseEntry(item | "", file, index, out);
-      block.count = static_cast<uint8_t>(out.entryCount - block.first);
+      parseMenu(obj, file, index, block, out);
       break;
     case BlockType::Text:
       if (out.textCount >= kMaxTexts || !copyText(out.texts[out.textCount], kTextBytes, obj["text"] | "")) {
@@ -253,6 +274,32 @@ bool parse(const JsonObjectConst root, const char* file, Layout& out) {
   }
   ensureSettings(file, out);
   scalePercents(file, out);
+  return true;
+}
+
+bool parsePage(const JsonObjectConst root, const char* file, const char* id, Layout& out) {
+  out = Layout{};
+  for (const JsonPairConst kv : root) {
+    const char* key = kv.key().c_str();
+    if (std::strcmp(key, "title") && std::strcmp(key, "style") && std::strcmp(key, "columns") &&
+        std::strcmp(key, "items")) {
+      LOG_ERR("THM", "%s: key %s not supported, ignored", file, key);
+    }
+  }
+  if (!copyText(out.texts[0], kTextBytes, root["title"] | "")) {
+    if (!root["title"].isNull()) {
+      LOG_ERR("THM", "%s: title needs 1 to %u bytes, using %s", file, static_cast<unsigned>(kTextBytes - 1), id);
+    }
+    std::snprintf(out.texts[0], kTextBytes, "%s", id);
+  }
+  out.textCount = 1;
+  // parseEntry() keeps the last entry for Home's Settings; a page has Back instead.
+  parseMenu(root, file, 1, out.blocks[0], out);
+  if (out.blocks[0].count == 0) {
+    LOG_ERR("THM", "%s: no usable items", file);
+    return false;
+  }
+  out.blockCount = 1;
   return true;
 }
 

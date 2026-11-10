@@ -36,6 +36,7 @@ UIIcon iconOf(const TPH::Action action) {
       return UIIcon::Library;
     case TPH::Action::Files:
     case TPH::Action::Folder:
+    case TPH::Action::Page:
       return UIIcon::Folder;
     case TPH::Action::Opds:
       return UIIcon::Opds;
@@ -91,8 +92,8 @@ int16_t centeredY(const fui::Rect rect, const int height) {
 }
 }  // namespace
 
-PackHomeUi::PackHomeUi(GfxRenderer& renderer, const Layout& source)
-    : UiAppHost(renderer), layout(source), coverSlots(renderer), renderer(renderer) {}
+PackHomeUi::PackHomeUi(GfxRenderer& renderer, const Layout& source, const int16_t top)
+    : UiAppHost(renderer), top(top), layout(source), coverSlots(renderer), renderer(renderer) {}
 
 void PackHomeUi::begin(const std::vector<RecentBook>& recent, const Available has) {
   books = &recent;
@@ -116,7 +117,7 @@ void PackHomeUi::begin(const std::vector<RecentBook>& recent, const Available ha
     } else if (block.type == TPH::BlockType::Menu) {
       for (uint8_t e = block.first; e < block.first + block.count; ++e) {
         const auto action = layout.entries[e].action;
-        if ((action == TPH::Action::Continue && recent.empty()) ||
+        if ((action == TPH::Action::Continue && !has.continueReading) ||
             (action == TPH::Action::Saved && !has.bookmarks && !has.clippings) ||
             (action == TPH::Action::Opds && !has.opds) || (action == TPH::Action::Stats && !has.stats)) {
           continue;
@@ -188,10 +189,11 @@ void PackHomeUi::draw(UiScreen& screen) {
   coverSlots.prepare();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int top = UITheme::getHeaderRect(renderer, 0).y;
+  const int areaTop = top >= 0 ? top : UITheme::getHeaderRect(renderer, 0).y;
   const int side = metrics.contentSidePadding;
-  const fui::Rect area{static_cast<int16_t>(safe.x + side), static_cast<int16_t>(top),
-                       static_cast<int16_t>(safe.width - 2 * side), static_cast<int16_t>(safe.y + safe.height - top)};
+  const fui::Rect area{static_cast<int16_t>(safe.x + side), static_cast<int16_t>(areaTop),
+                       static_cast<int16_t>(safe.width - 2 * side),
+                       static_cast<int16_t>(safe.y + safe.height - areaTop)};
   if (area.empty()) return;
   fui::layoutLinear(
       area, fui::Axis::Column, screen.theme().spaceSm, layout.blockCount,
@@ -553,6 +555,8 @@ const char* PackHomeUi::entryLabel(const TPH::Entry& entry) const {
                                                         : tr(STR_BOOKMARKS);
     case TPH::Action::Goodies:
       return tr(STR_GOODIES);
+    case TPH::Action::Page:
+      return entry.path;  // the page id
     case TPH::Action::Folder:
     case TPH::Action::Book: {
       // The last path part: "/Comics" shows as Comics.

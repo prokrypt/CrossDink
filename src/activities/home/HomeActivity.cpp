@@ -43,6 +43,7 @@
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
+#include "PackPageActivity.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
 #include "SavedItemsHomeActivity.h"
@@ -2320,7 +2321,8 @@ void HomeActivity::activateCoverGridSelection() {
 void HomeActivity::beginPackHome() {
   using ThemePackHome::Action;
   PackHomeUi& ui = *packHomeUi;
-  ui.begin(recentBooks, {hasBookmarks, hasClippings, OPDS_STORE.hasServers(), SETTINGS.shouldTrackReadingStats()});
+  ui.begin(recentBooks, {!recentBooks.empty(), hasBookmarks, hasClippings, OPDS_STORE.hasServers(),
+                         SETTINGS.shouldTrackReadingStats()});
   // Book cards show their % (the most recent one its KOSync badge): one small read each, here instead of per draw.
   for (int i = 0; i < std::min(static_cast<int>(recentBooks.size()), kMaxCachedBooks); ++i) {
     if (!ui.showsCard(i)) continue;
@@ -2362,14 +2364,17 @@ void HomeActivity::beginPackHome() {
 }
 
 void HomeActivity::activatePackSelection() {
-  using ThemePackHome::Action;
   const PackHomeUi::Target picked = packHomeUi->targetAt(selectorIndex);
   if (picked.book >= 0 && picked.book < static_cast<int>(recentBooks.size())) {
     onSelectBook(recentBooks[picked.book].path);
     return;
   }
-  if (!picked.entry) return;
-  switch (picked.entry->action) {
+  if (picked.entry) openPackEntry(picked.entry->action, picked.entry->path);
+}
+
+void HomeActivity::openPackEntry(const ThemePackHome::Action action, const char* path) {
+  using ThemePackHome::Action;
+  switch (action) {
     case Action::Continue:
       if (!recentBooks.empty()) onSelectBook(recentBooks.front().path);
       return;
@@ -2400,19 +2405,34 @@ void HomeActivity::activatePackSelection() {
     case Action::Folder:
     case Action::Book:
       // The pack names a card path: it may be gone or renamed.
-      if (!Storage.exists(picked.entry->path)) {
-        LOG_ERR("HOME", "Theme pack entry not found: %s", picked.entry->path);
+      if (!Storage.exists(path)) {
+        LOG_ERR("HOME", "Theme pack entry not found: %s", path);
         {
           RenderLock lock;
           Toast::show(renderer, tr(STR_NOT_FOUND));
         }
         requestUpdate();
-      } else if (picked.entry->action == Action::Folder) {
-        activityManager.goToFileBrowser(picked.entry->path);
+      } else if (action == Action::Folder) {
+        activityManager.goToFileBrowser(path);
       } else {
-        onSelectBook(picked.entry->path);
+        onSelectBook(path);
       }
       return;
+    case Action::Page: {
+      // Read from the card now, on the tap; a bad page file leaves Home with a toast.
+      auto page = PackPageActivity::open(renderer, mappedInput, path, packHomeUi->has(), 1);
+      if (!page) {
+        requestUpdate();
+        return;
+      }
+      LibraryPrewarm::stop(false);  // pushed screens stop Home's loop; don't leave a paused build holding heap
+      startActivityForResult(std::move(page), [this](const ActivityResult& result) {
+        if (const auto* pick = std::get_if<ThemePageResult>(&result.data)) {
+          openPackEntry(static_cast<Action>(pick->action), pick->path.c_str());
+        }
+      });
+      return;
+    }
   }
 }
 

@@ -14,7 +14,8 @@
 //     {"type": "covers", "style": "row", "count": 3, "height": "45%"},
 //     {"type": "stats", "items": ["streak", "today", "book_progress"]},
 //     {"type": "menu", "style": "grid", "columns": 2,
-//      "items": ["continue", "library", "files", "folder:/Comics", "book:/Books/a.epub", "settings"]},
+//      "items": ["continue", "library", "files", "folder:/Comics", "book:/Books/a.epub", "page:Comics",
+//                "settings"]},
 //     {"type": "clock"}, {"type": "text", "text": "Hello"}, {"type": "image", "file": "art.bmp"},
 //     {"type": "spacer"} ] }
 //
@@ -25,9 +26,14 @@
 //   clock: time and date. text: the pack's own line. image: a 1-bit BMP in the pack
 //   folder (ThemePack decodes it). spacer: empty.
 // - Entries: continue, library, files, opds, transfer, settings, stats, saved,
-//   goodies (debug builds), folder:<path>, book:<path>. Built-in entries keep their
-//   translated labels; a pack restyles them only through its icons. A layout without
-//   settings gets it appended, so Settings is always reachable.
+//   goodies (debug builds), folder:<path>, book:<path>, page:<id>. Built-in entries keep
+//   their translated labels; a pack restyles them only through its icons. A layout
+//   without settings gets it appended, so Settings is always reachable.
+// - page:<id> opens the user page pages/<id>.json in the pack folder, labelled <id>:
+//     { "title": "Comics", "style": "grid", "columns": 3,
+//       "items": ["folder:/Comics", "book:/Comics/a.cbz", "page:Manga", "library"] }
+//   title (default <id>), style list or grid (columns 1-4), items as in a menu block.
+//   Read when opened, never at boot; Back always returns.
 // - height: "N%" of the Home area or "flex" (a share of what is left). By default
 //   header, stats, clock, text and image take their natural height, the rest share.
 // - Unknown types, keys and entries are logged and skipped.
@@ -36,7 +42,20 @@ namespace ThemePackHome {
 enum class BlockType : uint8_t { Header, Covers, Stats, Menu, Clock, Text, Image, Spacer };
 enum class Style : uint8_t { Single, Row, Grid, List };
 enum class Stat : uint8_t { Streak, Today, TotalTime, BooksRead, BookProgress, BookTime };
-enum class Action : uint8_t { Continue, Library, Files, Opds, Transfer, Settings, Stats, Saved, Goodies, Folder, Book };
+enum class Action : uint8_t {
+  Continue,
+  Library,
+  Files,
+  Opds,
+  Transfer,
+  Settings,
+  Stats,
+  Saved,
+  Goodies,
+  Folder,
+  Book,
+  Page
+};
 
 constexpr uint8_t kMaxBlocks = 16;
 constexpr uint8_t kMaxEntries = 24;
@@ -61,7 +80,7 @@ struct Block {
 
 struct Entry {
   Action action = Action::Settings;
-  char path[kPathBytes] = {};  // folder: and book: entries
+  char path[kPathBytes] = {};  // folder: and book: card paths; page: ids
 };
 
 struct Layout {
@@ -79,5 +98,8 @@ struct Layout {
 // Fills out from home.json's root; file names the file in log lines. False (logged)
 // when nothing usable is left: Home then stays the base theme's.
 bool parse(JsonObjectConst root, const char* file, Layout& out);
+// A user page (pages/<id>.json): one menu block, its title in texts[0] (id when the
+// file has none). False (logged) when it has no usable entry.
+bool parsePage(JsonObjectConst root, const char* file, const char* id, Layout& out);
 
 }  // namespace ThemePackHome

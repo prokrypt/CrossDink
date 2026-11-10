@@ -15,6 +15,12 @@ bool parse(const char* json, TPH::Layout& out) {
   return TPH::parse(doc.as<JsonObjectConst>(), "home.json", out);
 }
 
+bool parsePage(const char* json, TPH::Layout& out) {
+  JsonDocument doc;
+  EXPECT_FALSE(deserializeJson(doc, json));
+  return TPH::parsePage(doc.as<JsonObjectConst>(), "pages/Comics.json", "Comics", out);
+}
+
 }  // namespace
 
 TEST(ThemePackHome, ParsesThePlanExample) {
@@ -49,8 +55,8 @@ TEST(ThemePackHome, SkipsUnknownBlocksEntriesAndKeys) {
   TPH::Layout l;
   ASSERT_TRUE(parse(R"({"blocks": [
       {"type": "weather"}, 7,
-      {"type": "menu", "colour": "red", "items": ["library", "page:comics", "nope", "book:relative.epub",
-                                                  "folder:/../x", "goodies", "settings"]}
+      {"type": "menu", "colour": "red", "items": ["library", "page:", "page:../x", "nope",
+                                                  "book:relative.epub", "folder:/../x", "goodies", "settings"]}
     ], "extra": 1})",
                     l));
   ASSERT_EQ(l.blockCount, 1);
@@ -147,4 +153,44 @@ TEST(ThemePackHome, RejectsLayoutsWithNothingUsable) {
   EXPECT_FALSE(parse(R"({"blocks": [{"type": "nope"}, {"type": "stats", "items": ["x"]}]})", l));
   EXPECT_FALSE(parse(R"({"layout": []})", l));
   EXPECT_FALSE(parse(R"({"blocks": {"type": "header"}})", l));
+}
+
+TEST(ThemePackHome, ParsesPageEntries) {
+  TPH::Layout l;
+  ASSERT_TRUE(parse(R"({"blocks": [{"type": "menu", "items": ["page:My Comics", "settings"]}]})", l));
+  ASSERT_EQ(l.blocks[0].count, 2);
+  EXPECT_EQ(l.entries[0].action, TPH::Action::Page);
+  EXPECT_STREQ(l.entries[0].path, "My Comics");
+}
+
+TEST(ThemePackHome, ParsesAUserPage) {
+  TPH::Layout l;
+  ASSERT_TRUE(parsePage(R"({"title": "Comic shelf", "style": "grid", "columns": 3, "extra": 1,
+      "items": ["folder:/Comics", "book:/Comics/a.cbz", "page:Manga", "nope", "library"]})",
+                        l));
+  ASSERT_EQ(l.blockCount, 1);
+  EXPECT_EQ(l.blocks[0].type, TPH::BlockType::Menu);
+  EXPECT_EQ(l.blocks[0].style, TPH::Style::Grid);
+  EXPECT_EQ(l.blocks[0].columns, 3);
+  ASSERT_EQ(l.blocks[0].count, 4);  // no Settings appended: a page has Back
+  EXPECT_EQ(l.entries[2].action, TPH::Action::Page);
+  EXPECT_STREQ(l.entries[2].path, "Manga");
+  EXPECT_EQ(l.entries[3].action, TPH::Action::Library);
+  EXPECT_STREQ(l.texts[0], "Comic shelf");
+}
+
+TEST(ThemePackHome, PageTitleDefaultsToItsId) {
+  TPH::Layout l;
+  ASSERT_TRUE(parsePage(R"({"items": ["files"]})", l));
+  EXPECT_EQ(l.blocks[0].style, TPH::Style::List);
+  EXPECT_STREQ(l.texts[0], "Comics");
+  ASSERT_TRUE(parsePage(R"({"title": "", "items": ["files"]})", l));
+  EXPECT_STREQ(l.texts[0], "Comics");
+}
+
+TEST(ThemePackHome, RejectsPagesWithNothingUsable) {
+  TPH::Layout l;
+  EXPECT_FALSE(parsePage(R"({"title": "Empty"})", l));
+  EXPECT_FALSE(parsePage(R"({"items": ["nope", "folder:relative"]})", l));
+  EXPECT_FALSE(parsePage(R"({"items": "library"})", l));
 }

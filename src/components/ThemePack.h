@@ -36,6 +36,9 @@ const freeink::Icon* icon(UIIcon icon, uint32_t size);
 const ThemePackHome::Layout* homeLayout();
 // The bitmap of the layout's image `index` (Mask1), or nullptr when it did not load.
 const freeink::Icon* image(uint8_t index);
+// Reads the active pack's user page pages/<id>.json (ThemePackHome::parsePage) into
+// out. Main loop, when the page is opened. False (logged) when it is missing or bad.
+bool page(const char* id, ThemePackHome::Layout& out);
 // Pack folder names in both roots, sorted (directory listing only).
 std::vector<std::string> list();
 // Boot, before the first sync: the second crash reboot in a row with a pack set

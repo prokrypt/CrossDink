@@ -73,6 +73,7 @@ constexpr int kIconBytes = 32 * 4;  // a 32 px icon: 32 rows of 4 bytes; 24 px u
 // pack is turned off; nothing is allocated while no pack is set.
 struct Pack {
   uint8_t base = 0;
+  char dir[64] = {};  // the pack folder, for user pages read when opened
   ThemeMetrics metrics[std::size(kBuiltIns)];
   freeink::Icon icons[kIconCount][2] = {};  // [24 px, 32 px]; bits == nullptr: built-in
   uint8_t iconBits[kIconCount][2][kIconBytes];
@@ -324,6 +325,7 @@ std::unique_ptr<Pack> load(const char* name) {
     return nullptr;
   }
   pack->base = static_cast<uint8_t>(base->theme);
+  std::snprintf(pack->dir, sizeof(pack->dir), "%s", dir);
   for (size_t i = 0; i < std::size(kBuiltIns); ++i) pack->metrics[i] = *kBuiltIns[i];
 
   int overrides = 0;
@@ -412,6 +414,17 @@ const freeink::Icon* image(const uint8_t index) {
   const Pack* pack = gPack.get();
   if (!pack || index >= ThemePackHome::kMaxImages || !pack->images[index].bits) return nullptr;
   return &pack->images[index];
+}
+
+bool page(const char* id, ThemePackHome::Layout& out) {
+  if (!gPack) {
+    LOG_ERR("THM", "page %s: no theme pack active", id);
+    return false;
+  }
+  char path[160];
+  std::snprintf(path, sizeof(path), "%s/pages/%s.json", gPack->dir, id);
+  JsonDocument doc;
+  return readJson(path, doc) && ThemePackHome::parsePage(doc.as<JsonObjectConst>(), path, id, out);
 }
 
 std::vector<std::string> list() {
