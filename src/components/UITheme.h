@@ -65,7 +65,8 @@ class UITheme {
   static int getReaderStatusBarFontId();
   static int getReaderStatusBarTextHeight(const GfxRenderer& renderer);
   static int getProgressBarHeight();
-  static int getReaderStatusBarHeight(ReaderStatusBarPosition position, const GfxRenderer& renderer);
+  static int getReaderStatusBarHeight(ReaderStatusBarPosition position, const GfxRenderer& renderer,
+                                      const ReaderStatusBarConfig* overrideConfig = nullptr);
   static int getReaderProgressBarHeight(ReaderStatusBarPosition position);
   // Device-specific top offset for the clock, battery, and reserved status-bar lane.
   static int getTopStatusBarInset(const GfxRenderer& renderer);

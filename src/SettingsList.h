@@ -633,7 +633,7 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// 117 entries on every build, four edge gesture entries compiled only for
+// 116 entries on every build, four edge gesture entries compiled only for
 // touch devices, Publisher fonts on scalable-font builds, and the three tilt
 // page-turn entries (kept on every device so saved values survive a failed IMU
 // probe; hidden from the UI without one). The simulator smoke test fails if
@@ -647,7 +647,7 @@ inline constexpr size_t PUBLISHER_FONT_SETTINGS = 1;
 #else
 inline constexpr size_t PUBLISHER_FONT_SETTINGS = 0;
 #endif
-inline constexpr size_t BASE_SETTINGS_CAPACITY = 122 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 121 + (CROSSDINK_APP_CAP_TOUCH ? 4 : 0) + PUBLISHER_FONT_SETTINGS + 3;
 
 // Main task, after a setting's SETTINGS field changed (Settings menu, remote
 // SET): applies what the device holds apart from SETTINGS (the light, the
@@ -1076,7 +1076,6 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
     displaySettings.push_back(SettingInfo::Submenu(StrId::STR_FRONTLIGHT, SettingAction::DisplayFrontlight));
   }
   displaySettings.push_back(SettingInfo::Action(StrId::STR_STATUS_BAR, SettingAction::DisplayStatusBar));
-  addDisplaySetting(StrId::STR_HIDE_BATTERY);
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SCREEN_CALIBRATION, SettingAction::ScreenCalibration));
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
   addDisplaySetting(StrId::STR_GHOST_BUSTERS);

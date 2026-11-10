@@ -687,7 +687,7 @@ void TxtReaderActivity::initializeReader() {
   cachedHorizontalMargin = SETTINGS.screenMarginHorizontal;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
   cachedTopStatusBarHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
-  cachedBottomStatusBarHeight = UITheme::getInstance().getStatusBarHeight(renderer);
+  cachedFooterReservedHeight = ReaderUtils::getReaderFooterReservedHeight(renderer, false);
   cachedViewableInsets = renderer.getViewableInsets();
 
   // Calculate viewport dimensions
@@ -702,8 +702,7 @@ void TxtReaderActivity::initializeReader() {
   } else {
     cachedOrientedMarginTop += cachedVerticalMargin;
   }
-  cachedOrientedMarginBottom += std::max(
-      cachedVerticalMargin, static_cast<uint8_t>(cachedBottomStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  cachedOrientedMarginBottom += cachedFooterReservedHeight;
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -823,7 +822,7 @@ void TxtReaderActivity::render(RenderLock&&) {
   size_t readingOffset = 0;
   if (initialized && (cachedViewableInsets != renderer.getViewableInsets() ||
                       cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
-                      cachedBottomStatusBarHeight != UITheme::getInstance().getStatusBarHeight(renderer))) {
+                      cachedFooterReservedHeight != ReaderUtils::getReaderFooterReservedHeight(renderer, false))) {
     if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
       readingOffset = pageOffsets[currentPage];
       relayout = true;
@@ -1239,8 +1238,7 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   } else {
     marginTop += verticalMargin;
   }
-  marginBottom += std::max(verticalMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight(renderer) +
-                                                                ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  marginBottom += ReaderUtils::getReaderFooterReservedHeight(renderer, false);
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;

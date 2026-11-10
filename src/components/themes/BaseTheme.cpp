@@ -873,6 +873,7 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
                                     const ReaderStatusBarContent& content,
                                     const ReaderStatusBarConfig* overrideConfig) const {
   const ReaderStatusBarConfig config = overrideConfig ? *overrideConfig : SETTINGS.readerStatusBar(position);
+  if (config.hidden) return;
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const int fontId = content.outsideReader ? UITheme::getDisplayStatusBarFontId() : UITheme::getReaderStatusBarFontId();
   const int textLaneHeight = content.outsideReader ? UITheme::getDisplayStatusBarTextHeight(renderer)
@@ -931,8 +932,8 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
   }
   if (!hasText) return;
 
-  const bool batteryPercent = content.outsideReader ? SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_ALWAYS
-                                                    : SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_NEVER;
+  const bool batteryIcon = config.batteryStyle != ReaderStatusBarBatteryStyle::PercentOnly;
+  const bool batteryPercent = config.batteryStyle != ReaderStatusBarBatteryStyle::IconOnly;
   const auto itemText = [&](const ReaderStatusBarItem item, char* scratch, const size_t len) -> const char* {
     switch (item) {
       case ReaderStatusBarItem::Date:
@@ -978,11 +979,11 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
       content.outsideReader && config.contains(ReaderStatusBarItem::Battery) ? wifiStatusReserve() : 0;
   const auto measureItem = [&](const ReaderStatusBarItem item, const int maxWidth) {
     if (item == ReaderStatusBarItem::Battery) {
-      int width = metrics.batteryWidth + wifiReserve;
+      int width = (batteryIcon ? metrics.batteryWidth : 0) + wifiReserve;
       if (batteryPercent) {
         char percent[8];
         snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
-        width += batteryPercentSpacing + renderer.getTextWidth(fontId, percent);
+        width += (batteryIcon ? batteryPercentSpacing : 0) + renderer.getTextWidth(fontId, percent);
       }
       return width;
     }
@@ -993,25 +994,28 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
   const auto drawItem = [&](const ReaderStatusBarItem item, const int x, const int allowedWidth,
                             const bool alignRight) {
     if (item == ReaderStatusBarItem::Battery) {
-      if (allowedWidth < metrics.batteryWidth) return;
+      // The Wi-Fi glyph stays beside the battery in every style, including % Only.
       char percent[8];
       snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
-      const int percentWidth = batteryPercentSpacing + renderer.getTextWidth(fontId, percent);
-      const bool showPercent = batteryPercent && allowedWidth >= metrics.batteryWidth + percentWidth;
-      const int shownPercentWidth = showPercent ? percentWidth : 0;
-      const bool showWifi = wifiReserve > 0 && allowedWidth >= metrics.batteryWidth + shownPercentWidth + wifiReserve;
+      const int iconWidth = batteryIcon ? metrics.batteryWidth : 0;
+      const int percentWidth = (batteryIcon ? batteryPercentSpacing : 0) + renderer.getTextWidth(fontId, percent);
+      const bool showPercent = batteryPercent && allowedWidth >= iconWidth + percentWidth;
+      if (batteryIcon ? allowedWidth < iconWidth : !showPercent) return;
+      const int shownWidth = iconWidth + (showPercent ? percentWidth : 0);
+      const bool showWifi = wifiReserve > 0 && allowedWidth >= shownWidth + wifiReserve;
       const bool right = top && alignRight;
-      const Rect batteryRect{right ? x + allowedWidth - metrics.batteryWidth : x, textY, metrics.batteryWidth,
-                             metrics.batteryHeight};
-      if (right) {
-        drawBatteryRight(renderer, batteryRect, showPercent, foregroundBlack, fontId);
+      const int blockX = right ? x + allowedWidth - shownWidth : x;
+      if (!batteryIcon) {
+        renderer.drawText(fontId, blockX, textY, percent, foregroundBlack);
+      } else if (right) {
+        drawBatteryRight(renderer, Rect{x + allowedWidth - iconWidth, textY, iconWidth, metrics.batteryHeight},
+                         showPercent, foregroundBlack, fontId);
       } else {
-        drawBatteryLeft(renderer, batteryRect, showPercent, foregroundBlack, fontId);
+        drawBatteryLeft(renderer, Rect{x, textY, iconWidth, metrics.batteryHeight}, showPercent, foregroundBlack,
+                        fontId);
       }
       if (showWifi) {
-        drawWifiStatus(renderer,
-                       right ? batteryRect.x - shownPercentWidth - wifiReserve
-                             : batteryRect.x + batteryRect.width + shownPercentWidth + batteryPercentSpacing,
+        drawWifiStatus(renderer, right ? blockX - wifiReserve : blockX + shownWidth + batteryPercentSpacing,
                        textY + iconLift, foregroundBlack);
       }
       return;

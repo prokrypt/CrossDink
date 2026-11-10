@@ -175,6 +175,14 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
   }
 }
 
+// Hide Battery % (Never / In Reader / Always) predates per-bar battery styles.
+// In Reader hid the percentage only in reader bars, so the UI header kept it.
+ReaderStatusBarBatteryStyle legacyBatteryStyle(const uint8_t hideBatteryPercentage, const bool displayBar) {
+  const bool hidden = displayBar ? hideBatteryPercentage == CrossPointSettings::HIDE_ALWAYS
+                                 : hideBatteryPercentage != CrossPointSettings::HIDE_NEVER;
+  return hidden ? ReaderStatusBarBatteryStyle::IconOnly : ReaderStatusBarBatteryStyle::IconAndPercent;
+}
+
 void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
   switch (static_cast<CrossPointSettings::STATUS_BAR_MODE>(settings.statusBar)) {
     case CrossPointSettings::NONE:
@@ -505,6 +513,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 
   JsonArray displaySlots = doc["displayStatusBar"].to<JsonArray>();
   for (const auto item : displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
+  doc["displayBatteryStyle"] = static_cast<uint8_t>(displayStatusBar.batteryStyle);
 
   JsonObject bars = doc["readerStatusBars"].to<JsonObject>();
   bars["version"] = 1;
@@ -899,6 +908,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   const JsonVariantConst bars = doc["readerStatusBars"];
   if (bars["version"] != 1) {
+    topReaderStatusBar = ReaderStatusBarConfig{};
     bottomReaderStatusBar = migrateBottomStatusBar(
         {statusBarChapterPageCount != 0, stablePageNumbers != 0, statusBarBookProgressPercentage != 0, statusBarTitle,
          statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
@@ -927,6 +937,22 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
         });
       }
     }
+  }
+  const uint8_t legacyHideBattery =
+      clamp(doc["hideBatteryPercentage"] | static_cast<uint8_t>(HIDE_NEVER), HIDE_BATTERY_PERCENTAGE_COUNT, HIDE_NEVER);
+  const auto migrateReaderBatteryStyle = [&](const char* key, ReaderStatusBarConfig& bar) {
+    if (bars["version"] == 1 && !bars[key]["battery"].isUnbound()) return;
+    bar.batteryStyle = legacyBatteryStyle(legacyHideBattery, false);
+    needsResave = true;
+  };
+  migrateReaderBatteryStyle("top", topReaderStatusBar);
+  migrateReaderBatteryStyle("bottom", bottomReaderStatusBar);
+  if (doc["displayBatteryStyle"].isUnbound()) {
+    displayStatusBar.batteryStyle = legacyBatteryStyle(legacyHideBattery, true);
+    needsResave = true;
+  } else if (!readReaderStatusBarBatteryStyle(doc["displayBatteryStyle"], displayStatusBar.batteryStyle)) {
+    displayStatusBar.batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
+    needsResave = true;
   }
   if (doc["sleepTimeoutStep"].isNull()) {
     if (!doc["sleepTimeoutMinutes"].isNull()) {
@@ -1151,6 +1177,9 @@ bool CrossPointSettings::loadFromFile() {
           {statusBarChapterPageCount != 0, stablePageNumbers != 0, statusBarBookProgressPercentage != 0, statusBarTitle,
            statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
            statusBarProgressBarThickness});
+      topReaderStatusBar.batteryStyle = legacyBatteryStyle(hideBatteryPercentage, false);
+      bottomReaderStatusBar.batteryStyle = legacyBatteryStyle(hideBatteryPercentage, false);
+      displayStatusBar.batteryStyle = legacyBatteryStyle(hideBatteryPercentage, true);
       migrateLanguageBinaryFile();
       if (saveToFile() && flush()) {
         Storage.rename(SETTINGS_FILE_BIN, SETTINGS_FILE_BAK);
@@ -1362,8 +1391,15 @@ void CrossPointSettings::setReaderStatusBar(const ReaderStatusBarPosition positi
                                             const ReaderStatusBarConfig& config) {
   std::lock_guard<std::mutex> lock(_mutex);
   if (position == ReaderStatusBarPosition::Top) {
+    if (topReaderStatusBar.slots != config.slots || topReaderStatusBar.percentageFormat != config.percentageFormat ||
+        topReaderStatusBar.progressBar != config.progressBar ||
+        topReaderStatusBar.progressBarThickness != config.progressBarThickness ||
+        topReaderStatusBar.centered != config.centered || topReaderStatusBar.separator != config.separator ||
+        topReaderStatusBar.batteryStyle != config.batteryStyle) {
+      // Hiding the top bar keeps a legacy XTC top strip that mirrors the bottom bar.
+      legacyXtcTopUsesBottom = 0;
+    }
     topReaderStatusBar = config;
-    legacyXtcTopUsesBottom = 0;
   } else {
     bottomReaderStatusBar = config;
   }

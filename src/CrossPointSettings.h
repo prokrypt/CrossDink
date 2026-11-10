@@ -356,7 +356,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   static constexpr uint8_t QUICK_ACTION_SLOT_ACTION_COUNT = 23;
 
-  // Hide battery percentage
+  // Legacy Hide Battery % values (migration only)
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
 
   // Page turn button long press behavior
@@ -647,7 +647,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   char opdsDownloadFolder[64] = "";
   // Nearby file receive destination (empty = SD root).
   char nearbyReceiveFolder[64] = "";
-  // Hide battery percentage
+  // Legacy Hide Battery % choice, read only to migrate into per-bar battery styles.
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   uint8_t longPressButtonBehavior = OFF;  // Legacy binary migration only.
   uint8_t frontButtonLeftLong = IGNORE;
