@@ -81,6 +81,8 @@ class HalStorage {
   HalFile open(const char* path, const oflag_t oflag = O_RDONLY);
   bool mkdir(const char* path, const bool pFlag = true);
   bool exists(const char* path);
+  // True when `path` (under /.crossdink) does not exist itself and reads from its /.crosspoint twin.
+  bool isTwinOnly(const char* path);
   bool remove(const char* path);
   bool rename(const char* oldPath, const char* newPath);
   bool rmdir(const char* path);

@@ -18,6 +18,7 @@
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/BatteryLog.h"
 #include "util/PluginEvents.h"
+#include "util/StatsStorage.h"
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
@@ -84,6 +85,7 @@ void UsbDriveActivity::onExit() {
     pluginevents::refreshSubscriptions();                         // the host may have changed plugins
   }
   Epub::forgetCacheKeys();  // the host may have replaced books
+  StatsStorage::forget();   // and stats origin records
 #endif
   filenameFontSystem.resume();
   Activity::onExit();

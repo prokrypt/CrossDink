@@ -14,6 +14,7 @@
 #include "ReaderExitSave.h"
 #include "TwoSlotFile.h"
 #include "sync/SyncFiles.h"
+#include "util/StatsStorage.h"
 
 namespace {
 enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
@@ -55,10 +56,12 @@ static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static_assert(GLOBAL_STATS_FILE_SIZE <= two_slot::MAX_PAYLOAD_BYTES, "stats slot exceeds two_slot buffers");
-// CrossDink's two slots. Older firmware keeps reading global_stats.bin (a bare
-// payload it understands), which is only read here until the first save.
-static constexpr char GLOBAL_STATS_PATH[] = "/.crossdink/global_stats_dink.bin";
-static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crossdink/global_stats_dink.bin.bak";
+// This reader's two slots are StatsStorage::localPath(LEGACY_STATS_PATH):
+// global_stats_<readerId>.bin(.bak). Older CrossDink builds keep their own pair
+// global_stats_dink.bin, and older firmware global_stats.bin (a bare payload);
+// both are read only until the first save, and only when this reader owns them.
+static constexpr char DINK_STATS_PATH[] = "/.crossdink/global_stats_dink.bin";
+static constexpr char DINK_STATS_BAK_PATH[] = "/.crossdink/global_stats_dink.bin.bak";
 
 // Bind the cached calendar to the selected server/account without storing credentials.
 std::string serverStreakPath() {
@@ -255,19 +258,60 @@ std::string localSyncedStatsFileName() {
   return name;
 }
 
-// The newest stats `accept` takes: CrossDink's slots, else the legacy pair.
+// Older builds' pairs, newest format first.
+constexpr const char* LEGACY_PAIRS[][2] = {{DINK_STATS_PATH, DINK_STATS_BAK_PATH},
+                                           {LEGACY_STATS_PATH, LEGACY_STATS_BAK_PATH}};
+
+// The existing file of an older build's pair (its owner speaks for both slots), or "".
+std::string pairFile(const char* const (&pair)[2]) {
+  for (const char* path : pair)
+    if (Storage.exists(path)) return path;
+  return {};
+}
+
+// The newest stats `accept` takes: this reader's slots, else an older build's pair this reader owns.
 size_t readNewest(bool (*accept)(const uint8_t*, size_t), uint8_t* out) {
+  const std::string local = StatsStorage::localPath(LEGACY_STATS_PATH);
+  if (local.empty()) return 0;
   const size_t size =
-      two_slot::read("GSTATS", GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE, accept, out);
+      two_slot::read("GSTATS", local.c_str(), (local + ".bak").c_str(), GLOBAL_STATS_FILE_SIZE, accept, out);
   if (size != 0) return size;
-  return two_slot::read("GSTATS", LEGACY_STATS_PATH, LEGACY_STATS_BAK_PATH, GLOBAL_STATS_FILE_SIZE, accept, out);
+  for (const auto& pair : LEGACY_PAIRS) {
+    const std::string probe = pairFile(pair);
+    if (probe.empty() || StatsStorage::legacyOwner(probe) != StatsStorage::Owner::Me) continue;
+    const size_t n = two_slot::read("GSTATS", pair[0], pair[1], GLOBAL_STATS_FILE_SIZE, accept, out);
+    if (n != 0) return n;
+  }
+  return 0;
+}
+
+// Before this reader's first save, for every older pair (StatsStorage::beforeFirstSave).
+bool beforeFirstSave() {
+  bool any = false;
+  for (const auto& pair : LEGACY_PAIRS) {
+    const std::string probe = pairFile(pair);
+    if (probe.empty()) continue;
+    any = true;
+    if (!StatsStorage::beforeFirstSave(probe)) return false;
+  }
+  return any || StatsStorage::beforeFirstSave("");
+}
+
+bool removeIfPresent(const char* path) {
+  if (!Storage.exists(path) || Storage.remove(path)) return true;
+  LOG_ERR("GSTATS", "Could not remove %s for reset", path);
+  return false;
 }
 
 bool saveToFile(const GlobalReadingStats& stats) {
+  const std::string local = StatsStorage::localPath(LEGACY_STATS_PATH);
+  if (local.empty()) return false;
+  const std::string backup = local + ".bak";
+  if (!Storage.exists(local.c_str()) && !Storage.exists(backup.c_str()) && !beforeFirstSave()) return false;
   uint8_t data[GLOBAL_STATS_FILE_SIZE];
   serializeStats(stats, data);
   // Reader exit saves unconditionally; a quick open-and-close writes nothing.
-  return two_slot::write("GSTATS", GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH, data, sizeof(data));
+  return two_slot::write("GSTATS", local.c_str(), backup.c_str(), data, sizeof(data));
 }
 }  // namespace
 
@@ -377,13 +421,19 @@ void GlobalReadingStats::save() const {
 static uint32_t s_localResetRevision = 0;
 
 bool GlobalReadingStats::resetLocal() {
-  // Every copy goes first, so none can bring the old stats back.
-  for (const char* path : {GLOBAL_STATS_BAK_PATH, GLOBAL_STATS_PATH, LEGACY_STATS_BAK_PATH, LEGACY_STATS_PATH}) {
-    if (Storage.exists(path) && !Storage.remove(path)) {
-      LOG_ERR("GSTATS", "Could not remove %s for reset", path);
-      return false;
-    }
+  const std::string local = StatsStorage::localPath(LEGACY_STATS_PATH);
+  if (local.empty()) return false;
+  // Every copy goes first, so none can bring the old stats back: older builds'
+  // pairs this reader owns (another reader's stay its own), then this reader's.
+  // cppcheck-suppress useStlAlgorithm ; ordered deletes with early exits
+  for (const auto& pair : LEGACY_PAIRS) {
+    const std::string probe = pairFile(pair);
+    if (probe.empty()) continue;
+    const StatsStorage::Owner owner = StatsStorage::legacyOwner(probe);
+    if (owner == StatsStorage::Owner::Unknown) return false;
+    if (owner == StatsStorage::Owner::Me && !(removeIfPresent(pair[1]) && removeIfPresent(pair[0]))) return false;
   }
+  if (!removeIfPresent((local + ".bak").c_str()) || !removeIfPresent(local.c_str())) return false;
   s_localResetRevision++;  // the old stats are gone even if the fresh file fails
   return saveToFile(GlobalReadingStats{});
 }

@@ -324,11 +324,30 @@ bool finalizeThumbBmp(const std::string& tmpPath, const std::string& thumbPath) 
 // CrossInk and CrossDink before /.crossdink keyed caches by the book's path.
 constexpr char kLegacyCacheDir[] = "/.crosspoint";
 
+// Copies `src` to `dst` through a .part temp; `bytes` counts what was written.
+bool copyFile(const std::string& src, const std::string& dst, uint32_t& bytes) {
+  uint8_t buf[256];
+  const std::string part = dst + ".part";
+  HalFile in;
+  HalFile out;
+  bool copied = Storage.openFileForRead("EBP", src, in) && Storage.openFileForWrite("EBP", part, out);
+  for (int n; copied && (n = in.read(buf, sizeof(buf))) != 0;) {
+    copied = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
+    if (copied) bytes += static_cast<uint32_t>(n);
+  }
+  in.close();
+  copied = copied && out.sync();
+  out.close();
+  if (copied && Storage.rename(part.c_str(), dst.c_str())) return true;
+  Storage.remove(part.c_str());
+  return false;
+}
+
 // Copies the user data `from` holds and `to` lacks: progress, reader settings
 // and stats (HalStorage::isBookUserData). book.bin, covers, thumbnails and
-// sections regenerate. Each file lands through a .part temp. `files` and
-// `bytes` count what was copied, for the log.
-bool copyTopLevelFiles(const std::string& from, const std::string& to, uint32_t& files, uint32_t& bytes) {
+// sections regenerate. `files` and `bytes` count what was copied, for the log;
+// `stats` tells whether any stats file was among it.
+bool copyTopLevelFiles(const std::string& from, const std::string& to, uint32_t& files, uint32_t& bytes, bool& stats) {
   HalFile dir = Storage.open(from.c_str());
   if (!dir || !dir.isDirectory()) {
     dir.close();
@@ -337,32 +356,19 @@ bool copyTopLevelFiles(const std::string& from, const std::string& to, uint32_t&
   Storage.mkdir(to.c_str());
   bool ok = true;
   char name[128];
-  uint8_t buf[256];
   for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
     const bool isDirectory = entry.isDirectory();
     const size_t nameLen = entry.getName(name, sizeof(name));
     entry.close();
     if (isDirectory || nameLen == 0 || nameLen >= sizeof(name) || !HalStorage::isBookUserData(name)) continue;
-    const std::string src = from + "/" + name;
     const std::string dst = to + "/" + name;
     if (Storage.exists(dst.c_str())) continue;
-    const std::string part = dst + ".part";
-    HalFile in;
-    HalFile out;
-    bool copied = Storage.openFileForRead("EBP", src, in) && Storage.openFileForWrite("EBP", part, out);
-    for (int n; copied && (n = in.read(buf, sizeof(buf))) != 0;) {
-      copied = n > 0 && out.write(buf, n) == static_cast<size_t>(n);
-      if (copied) bytes += static_cast<uint32_t>(n);
-    }
-    in.close();
-    copied = copied && out.sync();
-    out.close();
-    if (!copied || !Storage.rename(part.c_str(), dst.c_str())) {
-      Storage.remove(part.c_str());
+    if (!copyFile(from + "/" + name, dst, bytes)) {
       ok = false;
-    } else {
-      files++;
+      continue;
     }
+    files++;
+    stats = stats || strncmp(name, "stats", 5) == 0;
   }
   dir.close();
   return ok;
@@ -695,7 +701,17 @@ std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const
     const uint32_t startMs = millis();
     uint32_t files = 0;
     uint32_t bytes = 0;
-    const bool copied = copyTopLevelFiles(legacyPath, cachePath, files, bytes);
+    bool stats = false;
+    bool copied = copyTopLevelFiles(legacyPath, cachePath, files, bytes, stats);
+    // Stats under older names count for the owner /.crosspoint records. As
+    // /.crossdink files they would fall under this card's /.crossdink record
+    // instead, so a book without its own record takes the /.crosspoint one
+    // (src/util/StatsStorage.cpp).
+    const std::string claim = cachePath + "/stats_origin.bin";
+    const std::string legacyClaim = std::string(kLegacyCacheDir) + "/stats_origin.bin";
+    if (stats && !Storage.exists(claim.c_str()) && Storage.exists(legacyClaim.c_str())) {
+      copied = copyFile(legacyClaim, claim, bytes) && copied;
+    }
     const uint32_t copyMs = millis() - startMs;
     PerfLog::bookOpenStage("legacy", copyMs);
     if (copied) {

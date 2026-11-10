@@ -5,7 +5,8 @@
 
 #include "ReadingStatsUtils.h"
 
-// Per-book reading statistics, persisted to cachePath/stats_v6.bin.
+// Per-book reading statistics, persisted to this reader's cachePath/stats_v6_<readerId>.bin
+// (util/StatsStorage.h).
 struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
@@ -22,20 +23,20 @@ struct BookReadingStats {
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
 
-  // Loads stats from the newest valid slot of cachePath/stats_v6.bin, with fallback reads from the
-  // supported older versioned filenames and legacy cachePath/stats.bin. Returns
-  // default-constructed stats if no compatible file exists.
+  // Loads stats from the newest valid slot of this reader's file, else from the
+  // older builds' files this reader owns (unqualified stats_v6/v5/v4 and stats.bin).
+  // Returns default-constructed stats if no compatible file exists. Never writes.
   static BookReadingStats load(const std::string& cachePath);
 
   // Checked export: false for missing, malformed, or unsupported snapshots.
   static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
 
-  // Saves stats in place to the older of the two slots stats_v6.bin and
-  // stats_v6.bin.bak (TwoSlotFile.h). Returns false if the write failed.
+  // Saves stats in place to the older of this reader's two slots (TwoSlotFile.h).
+  // Returns false if the write failed or was refused (StatsStorage::beforeFirstSave).
   bool save(const std::string& cachePath) const;
 
-  // Deletes all supported versioned snapshots and their slot/transaction files,
-  // and legacy cachePath/stats.bin. Missing files are treated as success.
+  // Deletes this reader's slots and the older builds' files it owns. Missing
+  // files are treated as success.
   static bool remove(const std::string& cachePath);
 
   uint32_t averageForwardPageMillis() const;

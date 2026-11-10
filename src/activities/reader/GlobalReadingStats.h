@@ -5,8 +5,9 @@
 
 #include "ReadingStatsUtils.h"
 
-// Cumulative reading statistics across all books, persisted to
-// /.crossdink/global_stats_dink.bin (two slots; global_stats.bin is read until the first save).
+// Cumulative reading statistics across all books, persisted to this reader's
+// /.crossdink/global_stats_<readerId>.bin (two slots, util/StatsStorage.h); an
+// older build's global_stats_dink.bin or global_stats.bin is read until the first save.
 struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
@@ -41,16 +42,15 @@ struct GlobalReadingStats {
   // when the local stats may include in-memory changes that are not saved yet.
   static GlobalReadingStats loadAggregated(const GlobalReadingStats& localStats);
 
-  // Saves stats in place to the older of the two slots global_stats_dink.bin
-  // and global_stats_dink.bin.bak (TwoSlotFile.h). global_stats.bin is left as
-  // is, for older firmware.
+  // Saves stats in place to the older of this reader's two slots
+  // (TwoSlotFile.h). Older builds' files are left as they are.
   void save() const;
 
   // Copies this device's stats payload (newest valid slot, without the slot
   // trailer) into out. Returns its size, or 0 when there is none.
   static size_t readLocalFile(std::array<uint8_t, CURRENT_FILE_SIZE>& out);
 
-  // Replaces the stats files (both slots and global_stats.bin) with fresh empty stats
+  // Replaces this reader's stats files (its slots and the older builds' files it owns) with fresh empty stats
   // without touching the backups in /.crossdink-stats-backup.
   static bool resetLocal();
   // Advances after each successful resetLocal(), so an open reader knows its

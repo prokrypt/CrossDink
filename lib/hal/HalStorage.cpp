@@ -418,6 +418,8 @@ bool inDataRoot(const char* path) {
 bool twinAllowed(const char* path) {
   if (path[kDataRootLen] == '\0') return true;
   const char* first = path + kDataRootLen + 1;
+  // Stats origin claims cover only their own side (src/util/StatsStorage.cpp).
+  if (strncmp(strrchr(path, '/') + 1, "stats_origin.bin", 16) == 0) return false;
   // Carousel Home snapshots: home_carousel_cache_<N>.bin, its .tmp and the legacy single file.
   if (strncmp(first, "home_carousel_cache", 19) == 0) return false;
   for (const char* cache : {"font-catalog.bin", "sleep_frame.bin", "fileindex"}) {
@@ -1013,6 +1015,11 @@ bool HalStorage::mkdir(const char* path, const bool pFlag) {
 bool HalStorage::exists(const char* path) {
   StorageLock lock;
   return SDCard.exists(path) || legacyTwinLocked(path) != nullptr;
+}
+
+bool HalStorage::isTwinOnly(const char* path) {
+  StorageLock lock;
+  return !SDCard.exists(path) && legacyTwinLocked(path) != nullptr;
 }
 
 bool HalStorage::remove(const char* path) {

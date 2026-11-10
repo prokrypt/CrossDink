@@ -5,9 +5,18 @@
 
 #include <string>
 
+#include "TwoSlotFile.h"
+#include "sync/SyncFiles.h"
+#include "util/StatsStorage.h"
+
 namespace {
 constexpr char CACHE_PATH[] = "/cache/book";
-const std::string statsPath = std::string(CACHE_PATH) + "/stats_v6.bin";
+constexpr char ME[] = "crossink-000000000000";  // the esp_mac stub's all-zero MAC
+constexpr char OTHER[] = "crossink-0123456789ab";
+const std::string statsPath = std::string(CACHE_PATH) + "/stats_v6_" + ME + ".bin";
+const std::string unqualifiedV6Path = std::string(CACHE_PATH) + "/stats_v6.bin";
+const std::string folderClaim = std::string(CACHE_PATH) + "/stats_origin.bin";
+constexpr char ROOT_CLAIM[] = "/.crossdink/stats_origin.bin";
 const std::string backupPath = statsPath + ".bak";
 const std::string previousStatsPath = std::string(CACHE_PATH) + "/stats_v5.bin";
 const std::string v4StatsPath = std::string(CACHE_PATH) + "/stats_v4.bin";
@@ -26,6 +35,32 @@ size_t fileSize(const std::string& path) {
   return size;
 }
 
+void writeClaim(const std::string& path, const char* id) {
+  SyncFiles::Writer writer(path.c_str());
+  char stored[32]{};
+  snprintf(stored, sizeof(stored), "%s", id);
+  ASSERT_TRUE(writer.open() && writer.pod(uint8_t{1}) && writer.write(stored, sizeof(stored)) && writer.commit());
+}
+
+std::string claimOwner(const std::string& path) {
+  HalFile file;
+  if (!Storage.openFileForRead("TEST", path, file)) return {};
+  char data[37]{};
+  file.read(data, sizeof(data));
+  file.close();
+  return std::string(data + 1);
+}
+
+// A bare v5 payload as older firmware wrote it.
+void writeV5(const std::string& path, const uint8_t seconds) {
+  HalFile file;
+  ASSERT_TRUE(Storage.openFileForWrite("TEST", path, file));
+  uint8_t data[73] = {5};
+  data[3] = seconds;
+  file.write(data, sizeof(data));
+  file.close();
+}
+
 // Flips one payload byte, as a torn in-place write would.
 void corrupt(const std::string& path) {
   HalFile file = Storage.open(path.c_str(), O_RDWR);
@@ -41,7 +76,10 @@ void corrupt(const std::string& path) {
 
 class BookReadingStatsAtomicTest : public testing::Test {
  protected:
-  void SetUp() override { Storage.reset(); }
+  void SetUp() override {
+    Storage.reset();
+    StatsStorage::forget();
+  }
 };
 
 TEST_F(BookReadingStatsAtomicTest, SavesAlternateBetweenSlots) {
@@ -276,4 +314,111 @@ TEST(ReadingPace, LearningSamplesCarryAcrossShortSessions) {
   EXPECT_EQ(ReadingPace::estimateMillis(30000, 1, 60, 2), 30000U);
   // A two-sample prior has less influence than a well-established prior.
   EXPECT_GT(ReadingPace::estimateMillis(30000, 2, 40, 1), ReadingPace::estimateMillis(30000, 100, 40, 1));
+}
+
+// --- Per-reader files (util/StatsStorage.h) ---
+
+TEST_F(BookReadingStatsAtomicTest, OlderBuildsV6SlotsLoadAndStayForOlderFirmware) {
+  uint8_t payload[75] = {6};
+  payload[3] = 90;
+  ASSERT_TRUE(two_slot::write("TEST", unqualifiedV6Path.c_str(), (unqualifiedV6Path + ".bak").c_str(), payload, 75));
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 90U);
+  ASSERT_TRUE(statsWithSeconds(91).save(CACHE_PATH));
+  EXPECT_EQ(fileSize(statsPath), 83U);
+  EXPECT_EQ(fileSize(unqualifiedV6Path), 83U);  // a rollback still finds its stats
+  EXPECT_EQ(claimOwner(ROOT_CLAIM), ME);
+  EXPECT_EQ(claimOwner(folderClaim), ME);  // travels with a copy of only this folder
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 91U);
+}
+
+TEST_F(BookReadingStatsAtomicTest, LoadNeverWrites) {
+  writeV5(previousStatsPath, 42);
+  const auto before = Storage.paths();
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 42U);
+  EXPECT_EQ(Storage.paths(), before);
+}
+
+TEST_F(BookReadingStatsAtomicTest, AnotherReadersFolderIsLeftAlone) {
+  writeV5(previousStatsPath, 42);
+  writeClaim(folderClaim, OTHER);
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 0U);
+  ASSERT_TRUE(statsWithSeconds(5).save(CACHE_PATH));  // this reader starts its own copy
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 5U);
+  EXPECT_TRUE(BookReadingStats::remove(CACHE_PATH));
+  EXPECT_FALSE(Storage.exists(statsPath.c_str()));
+  EXPECT_TRUE(Storage.exists(previousStatsPath.c_str()));  // still the other reader's
+  EXPECT_EQ(claimOwner(folderClaim), OTHER);
+}
+
+TEST_F(BookReadingStatsAtomicTest, RootClaimNamesTheOwnerOfUnclaimedFolders) {
+  writeV5(previousStatsPath, 42);
+  writeClaim(ROOT_CLAIM, OTHER);
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 0U);
+  ASSERT_TRUE(statsWithSeconds(5).save(CACHE_PATH));
+  EXPECT_EQ(claimOwner(folderClaim), OTHER);  // recorded before this reader's first save
+  EXPECT_EQ(claimOwner(ROOT_CLAIM), OTHER);
+}
+
+TEST_F(BookReadingStatsAtomicTest, UnreadableClaimRefusesSaveAndReset) {
+  writeV5(previousStatsPath, 42);
+  writeClaim(folderClaim, ME);
+  corrupt(folderClaim);  // complete size, wrong CRC
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 0U);
+  EXPECT_FALSE(statsWithSeconds(5).save(CACHE_PATH));  // would hide the 42 s it could not read
+  EXPECT_FALSE(Storage.exists(statsPath.c_str()));
+  EXPECT_FALSE(BookReadingStats::remove(CACHE_PATH));
+  EXPECT_TRUE(Storage.exists(previousStatsPath.c_str()));
+}
+
+TEST_F(BookReadingStatsAtomicTest, TornFirstClaimIsRetried) {
+  writeV5(previousStatsPath, 42);
+  HalFile torn;
+  ASSERT_TRUE(Storage.openFileForWrite("TEST", folderClaim + ".tmp", torn));
+  torn.write(reinterpret_cast<const uint8_t*>("\x01"
+                                              "cross"),
+             6);
+  torn.close();
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 42U);
+  ASSERT_TRUE(statsWithSeconds(43).save(CACHE_PATH));
+  EXPECT_EQ(claimOwner(folderClaim), ME);
+  EXPECT_FALSE(Storage.exists((folderClaim + ".tmp").c_str()));
+}
+
+TEST_F(BookReadingStatsAtomicTest, NewerClaimFormatIsUnreadable) {
+  writeV5(previousStatsPath, 42);
+  HalFile claim;
+  ASSERT_TRUE(Storage.openFileForWrite("TEST", folderClaim, claim));
+  uint8_t data[37] = {2};
+  claim.write(data, sizeof(data));
+  claim.close();
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 0U);
+  EXPECT_FALSE(statsWithSeconds(5).save(CACHE_PATH));
+}
+
+TEST_F(BookReadingStatsAtomicTest, TwinFilesFollowOnlyTwinClaims) {
+  // CrossInk on another reader recorded /.crosspoint; this reader recorded /.crossdink.
+  writeClaim("/.crosspoint/stats_origin.bin", OTHER);
+  writeClaim(ROOT_CLAIM, ME);
+  const std::string own = "/.crossdink/xtc_1";
+  const std::string twin = "/.crossdink/xtc_2";
+  writeV5(own + "/stats_v5.bin", 11);
+  writeV5(twin + "/stats_v5.bin", 22);
+  Storage.markTwinOnly(twin + "/stats_v5.bin");
+  EXPECT_EQ(BookReadingStats::load(own).totalReadingSeconds, 11U);
+  EXPECT_EQ(BookReadingStats::load(twin).totalReadingSeconds, 0U);
+  ASSERT_TRUE(statsWithSeconds(1).save(twin));
+  EXPECT_FALSE(Storage.exists((twin + "/stats_origin.bin").c_str()));   // its owner lives under /.crosspoint
+  EXPECT_FALSE(Storage.exists("/.crosspoint/xtc_2/stats_origin.bin"));  // never written
+
+  // A twin folder's own record wins over the twin root's.
+  writeClaim("/.crosspoint/xtc_3/stats_origin.bin", ME);
+  writeV5("/.crossdink/xtc_3/stats_v5.bin", 33);
+  Storage.markTwinOnly("/.crossdink/xtc_3/stats_v5.bin");
+  EXPECT_EQ(BookReadingStats::load("/.crossdink/xtc_3").totalReadingSeconds, 33U);
+}
+
+TEST_F(BookReadingStatsAtomicTest, UnclaimedTwinFilesCountAsThisReaders) {
+  writeV5("/.crossdink/xtc_1/stats_v5.bin", 22);
+  Storage.markTwinOnly("/.crossdink/xtc_1/stats_v5.bin");
+  EXPECT_EQ(BookReadingStats::load("/.crossdink/xtc_1").totalReadingSeconds, 22U);
 }
