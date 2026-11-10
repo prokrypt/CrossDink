@@ -80,6 +80,13 @@ struct FilePathResult {
   std::string path;
 };
 
+// A theme pack user page's pick (PackPageActivity), for Home to open: a
+// ThemePackHome::Action and its card path.
+struct ThemePageResult {
+  uint8_t action = 0;
+  std::string path;
+};
+
 struct WordResult {
   std::string word;
 };
@@ -144,11 +151,12 @@ struct ClippingJumpResult {
   bool settingsChanged = false;
 };
 
-using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
-                                   IntervalResult, OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult,
-                                   BookmarkResult, FileBrowserActionResult, FilePathResult, WordResult,
-                                   ReadingStatsResult, ProgressSyncResult, ClippingResult, TtfRenderOptionsResult,
-                                   DictionaryClippingRequest, ClippingJumpResult, FrontlightPanelResult>;
+using ResultVariant =
+    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
+                 OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult, BookmarkResult,
+                 FileBrowserActionResult, FilePathResult, WordResult, ReadingStatsResult, ProgressSyncResult,
+                 ClippingResult, TtfRenderOptionsResult, DictionaryClippingRequest, ClippingJumpResult,
+                 FrontlightPanelResult, ThemePageResult>;
 
 struct ActivityResult {
   bool isCancelled = false;
