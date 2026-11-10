@@ -821,13 +821,58 @@ milliseconds per forward page, capped at `65535000` ms. The fraction is zero
 at that cap. Fractional precision is preserved across updates and reopen.
 The whole-second field and sync payload retain their existing units.
 
-The file is saved in two slots (`stats_v6.bin` and `stats_v6.bin.bak`,
-TwoSlotFile.h) like version 5. When neither slot is usable, reads try the
-version 5 slots, `stats_v4.bin`, then legacy `stats.bin`. Older payloads start
+The file is saved in two slots (`stats_v6_<reader>.bin` and its `.bak`,
+TwoSlotFile.h; see "Reading-stat reader ownership") like version 5. When neither
+slot is usable, reads try the unqualified `stats_v6.bin` slots older builds
+wrote, the version 5 slots, `stats_v4.bin`, then legacy `stats.bin`, only when
+this reader owns them. Older payloads start
 with a zero fractional part. Saves write only version 6; older snapshots stay
 on the card for older firmware. Reset removes all supported versioned snapshots
 and their slot files to avoid restoring old history. This stats-only change
 does not invalidate EPUB layout caches.
+
+## Reading-stat reader ownership
+
+Reading stats belong to the reader that recorded them, so a copied card or
+book folder does not upload another reader's history as new reading. Each
+reader keeps its own files, named with the stats upload identity
+(`KOReaderSyncClient::readerId()`: `crossink-` and the twelve lowercase hex MAC
+digits, so a CrossInk build on the same reader shares them):
+
+- `/.crossdink/global_stats_<reader>.bin` and `.bak` (two slots).
+- Per-book `stats_v6_<reader>.bin` and `.bak` in the book cache folder.
+
+Payload versions and wire formats are unchanged. Files under the older names
+(`global_stats_dink.bin`, `global_stats.bin`, per-book `stats_v6.bin`,
+`stats_v5.bin`, `stats_v4.bin`, `stats.bin`) are never renamed or rewritten:
+they stay for older firmware (an OTA rollback finds its stats as of the
+upgrade) and are read only while the reader has no file of its own, and only
+when it owns them. Reset deletes the older files it owns as well as its own.
+
+`stats_origin.bin` records the owner of the older files in its folder: version
+1 (`uint8_t`), the zero-padded 32-byte reader id, and the SyncFiles CRC32
+(written through `.tmp`, kept with `.bak`). A book folder's record wins over
+its root's (`/.crossdink/stats_origin.bin`); with neither, the files count as
+this reader's. Records cover only their own side: files that show through from
+`/.crosspoint` follow `/.crosspoint`'s records (CrossInk writes them), which
+CrossDink reads but never writes, and `stats_origin.bin` itself never shows
+through. When an EPUB cache is first copied from `/.crosspoint`, a book with
+older stats but no record of its own takes the `/.crosspoint` root record.
+
+Before its first save, a reader writes the root record (itself) if there is
+none, and copies the owner into a book folder that holds older files without a
+record, so a copy of only that folder keeps it. Loads never write. A record
+that cannot be read (read error, bad CRC, newer version) blocks that file's
+first save and reset, so empty counters never hide history that could not be
+read; a torn first `.tmp` with no record counts as no record. Cache cleanup
+keeps every reader's stats files and records, and fails before removing
+anything if they exceed the bounded preservation list.
+
+Known limits: files copied before the original reader ran this build are
+claimed by the first reader that uses them; totals already duplicated on the
+sync server are not repaired; after a rollback and re-upgrade, reading done on
+the older build is not merged into the reader's own files (both stay on the
+card). No EPUB layout-cache reset or server change is needed.
 
 ## `stats_v5.bin`
 

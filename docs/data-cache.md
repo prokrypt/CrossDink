@@ -15,8 +15,9 @@ CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that 
 
 ```text
 .crossdink/
-├── global_stats.bin        # All-time reading stats, including total books read
-├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
+├── global_stats_crossink-<mac>.bin     # This reader's all-time reading stats (two slots, + .bak)
+├── global_stats_dink.bin   # Older builds' all-time stats, read until the first save
+├── stats_origin.bin        # Which reader recorded the older stats files
 ├── synced_stats/           # Stats snapshots received from other readers
 ├── settings.json           # CrossDink device settings
 ├── settings.bin.bak        # Legacy binary settings file after migration, if present
@@ -36,7 +37,9 @@ CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that 
 │   ├── progress.bin        # Reading position slot A (chapter, page, etc.)
 │   ├── progress.bin.bak    # Reading position slot B; the newer valid slot wins
 │   ├── stats.bin           # Legacy per-book reading stats
-│   ├── stats_v6.bin        # Version 6 per-book reading stats
+│   ├── stats_v6.bin        # Older builds' version 6 per-book reading stats
+│   ├── stats_v6_crossink-<mac>.bin # This reader's per-book reading stats
+│   ├── stats_origin.bin    # Which reader recorded this book's older stats files
 │   ├── reading_stats_off   # Present when stats tracking is disabled for this book
 │   ├── reader_settings.bin # Per-book reader settings, render mode, and auto-page-turn interval
 │   ├── cover.bmp           # Book cover image, once generated
@@ -85,6 +88,20 @@ All-time reading stats can also be backed up outside `.crossdink` in:
 ```text
 /.crossdink-stats-backup/
 ```
+
+## Copying a card to another reader
+
+Reading stats belong to the reader that recorded them. Copying an SD card or a
+book's cache folder keeps those stats on the card, but another reader starts its
+own counters and does not upload the copied history as new reading. Moving the
+card back lets the original reader resume its counters. Book files and reading
+positions copy as usual.
+
+Before copying a card from older firmware, update the original reader and open
+and close a book once, so CrossDink records which reader the existing stats
+belong to. Stats copied before that have no record; the first updated reader to
+use them claims them. Totals already duplicated on the sync server are not
+corrected.
 
 For binary file layout details, see [File Formats](./file-formats.md).
 

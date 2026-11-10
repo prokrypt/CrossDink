@@ -9,6 +9,7 @@
 
 #include "ReaderExitSave.h"
 #include "TwoSlotFile.h"
+#include "util/StatsStorage.h"
 
 namespace {
 // Binary layout v1 (11 bytes):
@@ -101,28 +102,48 @@ bool isKnownLayout(const uint8_t* data, const size_t size) {
          (n == STATS_FILE_SIZE && data[0] == STATS_FILE_VERSION && validPaceFraction(data));
 }
 
-// Formats older firmware wrote: the previous versioned files (v5 was two-slot,
-// v4 a bare payload) and legacy stats.bin; read once, replaced by the first save.
+// This reader's copy, stats_v6_<readerId>.bin (util/StatsStorage.h); "" without a device identity.
+std::string localStatsPath(const std::string& cachePath) {
+  return StatsStorage::localPath(cachePath + "/" + statsFileNameForVersion(STATS_FILE_VERSION));
+}
+
+// The newest existing file older builds wrote (unqualified names), or "" when there is none.
+std::string firstLegacyFile(const std::string& cachePath) {
+  for (uint8_t version = STATS_FILE_VERSION; version >= OLDEST_VERSIONED_STATS_FILE_VERSION; --version) {
+    const std::string path = cachePath + "/" + statsFileNameForVersion(version);
+    for (const char* suffix : {"", ".bak"}) {
+      if (Storage.exists((path + suffix).c_str())) return path + suffix;
+    }
+  }
+  const std::string legacyPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
+  return Storage.exists(legacyPath.c_str()) ? legacyPath : std::string();
+}
+
+// Formats older builds wrote, read only when this reader owns them: unqualified
+// stats_v6 and v5 (two-slot), v4 (a bare payload) and stats.bin; read until the
+// first save, which writes this reader's copy and leaves them for older firmware.
 size_t readMigrationSource(const std::string& cachePath, uint8_t* data) {
-  // cppcheck-suppress unreadVariable ; read only by LOG_DBG, compiled out in release
-  const std::string currentName = statsFileNameForVersion(STATS_FILE_VERSION);
-  for (uint8_t version = STATS_FILE_VERSION - 1; version >= OLDEST_VERSIONED_STATS_FILE_VERSION; --version) {
+  const std::string first = firstLegacyFile(cachePath);
+  if (first.empty() || StatsStorage::legacyOwner(first) != StatsStorage::Owner::Me) return 0;
+  for (uint8_t version = STATS_FILE_VERSION; version >= OLDEST_VERSIONED_STATS_FILE_VERSION; --version) {
     const std::string previousName = statsFileNameForVersion(version);
     const std::string previousPath = cachePath + "/" + previousName;
     const std::string backupPath = previousPath + ".bak";
     if (!Storage.exists(previousPath.c_str()) && !Storage.exists(backupPath.c_str())) continue;
-    const size_t n = std::min(
-        two_slot::read("STATS", previousPath.c_str(), backupPath.c_str(), STATS_FILE_SIZE_V5, isKnownLayout, data),
-        static_cast<size_t>(STATS_FILE_SIZE));
+    // Only a file of the version's own size plus the trailer is a slot record.
+    const size_t slotSize = version == STATS_FILE_VERSION ? STATS_FILE_SIZE : STATS_FILE_SIZE_V5;
+    const size_t n =
+        std::min(two_slot::read("STATS", previousPath.c_str(), backupPath.c_str(), slotSize, isKnownLayout, data),
+                 static_cast<size_t>(STATS_FILE_SIZE));
     if (n == 0) continue;
-    LOG_DBG("STATS", "Migrating %s to %s", previousName.c_str(), currentName.c_str());
+    LOG_DBG("STATS", "Migrating %s", previousName.c_str());
     return n;
   }
 
   const std::string legacyPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
   FsFile f;
   if (!Storage.exists(legacyPath.c_str()) || !Storage.openFileForRead("STATS", legacyPath, f)) return 0;
-  LOG_DBG("STATS", "Migrating legacy %s to %s", LEGACY_STATS_FILE_NAME, currentName.c_str());
+  LOG_DBG("STATS", "Migrating legacy %s", LEGACY_STATS_FILE_NAME);
   const int n = f.read(data, STATS_FILE_SIZE);
   f.close();
   return n > 0 ? static_cast<size_t>(n) : 0;
@@ -177,7 +198,8 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     return true;
   }
   uint8_t data[two_slot::MAX_PAYLOAD_BYTES] = {};
-  const std::string statsPath = cachePath + "/" + statsFileNameForVersion(STATS_FILE_VERSION);
+  const std::string statsPath = localStatsPath(cachePath);
+  if (statsPath.empty()) return false;
   int n = static_cast<int>(std::min(
       two_slot::read("STATS", statsPath.c_str(), (statsPath + ".bak").c_str(), STATS_FILE_SIZE, isKnownLayout, data),
       static_cast<size_t>(STATS_FILE_SIZE)));
@@ -288,8 +310,12 @@ void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
 }
 
 bool BookReadingStats::save(const std::string& cachePath) const {
-  const std::string statsPath = cachePath + "/" + statsFileNameForVersion(STATS_FILE_VERSION);
+  const std::string statsPath = localStatsPath(cachePath);
+  if (statsPath.empty()) return false;
   const std::string backupPath = statsPath + ".bak";
+  if (!Storage.exists(statsPath.c_str()) && !Storage.exists(backupPath.c_str()) &&
+      !StatsStorage::beforeFirstSave(firstLegacyFile(cachePath)))
+    return false;
 
   uint8_t data[STATS_FILE_SIZE];
   memset(data, 0, sizeof(data));
@@ -321,36 +347,36 @@ bool BookReadingStats::save(const std::string& cachePath) const {
 }
 
 bool BookReadingStats::remove(const std::string& cachePath) {
-  const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
-  const std::string statsPath = cachePath + "/" + statsFileName;
+  const std::string statsPath = localStatsPath(cachePath);
+  if (statsPath.empty()) return false;
+  // Older builds' files go only when this reader owns them; another reader's stay its own.
+  const std::string legacy = firstLegacyFile(cachePath);
+  const StatsStorage::Owner owner = legacy.empty() ? StatsStorage::Owner::Other : StatsStorage::legacyOwner(legacy);
+  if (owner == StatsStorage::Owner::Unknown) return false;
   const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
   bool ok = true;
+  const auto removeIfPresent = [&ok](const std::string& path) {
+    if (Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) {
+      LOG_ERR("STATS", "Could not delete %s", path.c_str());
+      ok = false;
+    }
+  };
 
   // Remove fallback sources from oldest to newest. Keeping the canonical file
   // until every fallback is gone prevents an interrupted reset from reviving
   // older stats on the next load.
-  if (Storage.exists(legacyStatsPath.c_str()) && !Storage.remove(legacyStatsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", LEGACY_STATS_FILE_NAME);
-    ok = false;
-  }
-  // Older versions, including a previous firmware's second slot or recovery files.
-  for (uint8_t version = OLDEST_VERSIONED_STATS_FILE_VERSION; version <= STATS_FILE_VERSION; ++version) {
-    const std::string versionPath = cachePath + "/" + statsFileNameForVersion(version);
-    for (const char* suffix : {".tmp", ".bak", ""}) {
-      if (version == STATS_FILE_VERSION && !*suffix) break;  // the canonical file goes last
-      const std::string path = versionPath + suffix;
-      if (Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) {
-        LOG_ERR("STATS", "Could not delete %s", path.c_str());
-        ok = false;
-      }
+  if (owner == StatsStorage::Owner::Me) {
+    removeIfPresent(legacyStatsPath);
+    // Older versions, including a previous firmware's second slot or recovery files.
+    for (uint8_t version = OLDEST_VERSIONED_STATS_FILE_VERSION; version <= STATS_FILE_VERSION; ++version) {
+      const std::string versionPath = cachePath + "/" + statsFileNameForVersion(version);
+      for (const char* suffix : {".tmp", ".bak", ""}) removeIfPresent(versionPath + suffix);
     }
   }
+  removeIfPresent(statsPath + ".bak");
   // Keep the canonical file when a recovery artifact could not be removed.
   // Otherwise a later load could restore stats that the user just reset.
-  if (ok && Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
-    ok = false;
-  }
+  if (ok) removeIfPresent(statsPath);
   return ok;
 }
 

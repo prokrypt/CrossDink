@@ -71,6 +71,7 @@ class HalStorage {
     files_.clear();
     failRenameFrom_.clear();
     failRemovePath_.clear();
+    twinOnly_.clear();
   }
 
   bool exists(const char* path) const { return files_.contains(path); }
@@ -114,6 +115,17 @@ class HalStorage {
     return HalFile(data);
   }
 
+  // A /.crossdink path whose file stands for its /.crosspoint twin (HalStorage read-through).
+  bool isTwinOnly(const char* path) const { return twinOnly_.contains(path); }
+  void markTwinOnly(std::string path) { twinOnly_.insert(std::move(path)); }
+  std::vector<std::string> paths() const {
+    std::vector<std::string> out;
+    // cppcheck-suppress useStlAlgorithm ; a plain copy of the keys
+    for (const auto& entry : files_) out.push_back(entry.first);
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
   void failNextRenameFrom(std::string path) { failRenameFrom_.insert(std::move(path)); }
   void failNextRemove(std::string path) { failRemovePath_ = std::move(path); }
 
@@ -121,6 +133,7 @@ class HalStorage {
   std::unordered_map<std::string, std::shared_ptr<HostFileData>> files_;
   std::unordered_set<std::string> failRenameFrom_;
   std::string failRemovePath_;
+  std::unordered_set<std::string> twinOnly_;
 };
 
 inline HalStorage Storage;
