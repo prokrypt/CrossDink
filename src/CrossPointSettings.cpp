@@ -251,6 +251,35 @@ uint8_t migrateTiltDirectionValue(const uint8_t direction) {
   return direction;
 }
 
+#if CROSSDINK_PERF_LOG
+// Debug builds: names the top-level keys a settings write changes against the
+// card copy, to find fields that change every session.
+void logChangedSettingsKeys(const char* onCard, const size_t onCardLen, const char* json, const size_t len) {
+  JsonDocument before;
+  JsonDocument after;
+  if (onCardLen == 0 || deserializeJson(before, onCard, onCardLen) || deserializeJson(after, json, len)) {
+    LOG_DBG("CPS", "settings write: no card copy to compare");
+    return;
+  }
+  char keys[200] = "";
+  size_t used = 0;
+  unsigned changed = 0;
+  const auto note = [&](const char* prefix, const char* key) {
+    changed++;
+    if (used < sizeof(keys) - 1) {
+      const int n = snprintf(keys + used, sizeof(keys) - used, "%s%s%s", used ? " " : "", prefix, key);
+      if (n > 0) used = std::min(sizeof(keys) - 1, used + static_cast<size_t>(n));
+    }
+  };
+  for (JsonPairConst kv : after.as<JsonObjectConst>()) {
+    if (before[kv.key()] != kv.value()) note("", kv.key().c_str());
+  }
+  for (JsonPairConst kv : before.as<JsonObjectConst>()) {
+    if (after[kv.key()].isNull() && !kv.value().isNull()) note("-", kv.key().c_str());
+  }
+  LOG_DBG("CPS", "settings write: %u keys changed: %s", changed, keys);
+}
+#endif
 }  // namespace
 
 const char* CrossPointSettings::getDefaultDeviceName() {
@@ -1015,6 +1044,9 @@ bool CrossPointSettings::writeJsonToCard(const char* json, const size_t len) {
   size_t onCardLen = onCard.length();
   while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
   if (onCardLen != len || strncmp(onCard.c_str(), json, onCardLen) != 0) {
+#if CROSSDINK_PERF_LOG
+    logChangedSettingsKeys(onCard.c_str(), onCardLen, json, len);
+#endif
     Storage.mkdir("/.crossdink");
     const auto* data = reinterpret_cast<const uint8_t*>(json);
     if (!writeFileInPlace("CPS", SETTINGS_FILE_JSON_BAK, data, len, true) ||

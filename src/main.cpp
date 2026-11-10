@@ -2112,6 +2112,9 @@ void enterDeepSleep(bool fromTimeout, bool powerOff) {
     runBootTail(true);
     BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
     BatteryLog::onSleep(fromTimeout ? "idle-timeout" : (powerOff ? "power-off" : "request"));
+#if CROSSDINK_PERF_LOG && !defined(SIMULATOR)
+    HalStorage::logSdSummary("sleep");  // before SleepLog copies the log ring to SD
+#endif
     SleepLog::onSleep();
     // All sleep-time file writes are complete. Stop SDMMC before the power path
     // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.

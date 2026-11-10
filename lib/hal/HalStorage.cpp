@@ -22,6 +22,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <new>
 #include <vector>
 
@@ -551,7 +552,109 @@ bool copyTwinLocked(const std::string& from, const std::string& to) {
   LOG_ERR("SD", "Copy failed: %s -> %s", from.c_str(), to.c_str());
   return false;
 }
+#if CROSSDINK_PERF_LOG
+// This wake's SD traffic by path class, for HalStorage::logSdSummary(). Deep
+// sleep and every reset start it over.
+enum SdClass : uint8_t { kStore, kBook, kCache, kFrame, kLog, kOther, kSdClasses };
+constexpr const char* kSdClassNames[kSdClasses] = {"store", "book", "cache", "frame", "log", "other"};
+struct SdTally {
+  std::atomic<uint32_t> ops{0}, bytes{0}, us{0};
+};
+SdTally sdWrites[kSdClasses];  // ops: closed write handles, writeFile, remove, rename, mkdir
+SdTally sdReads[kSdClasses];   // ops: file opens for read and whole-file reads
+std::atomic<uint32_t> sdRereads[kSdClasses];
+
+// store: settings/state/recent and other root files, bookmarks, clippings;
+// book: a book cache's user data (progress, stats, reader settings);
+// cache: what regenerates; frame: the Quick Resume sleep frame; log: /debug.
+SdClass sdClassOf(const char* path) {
+  if (!path) return kOther;
+  if (strncmp(path, "/debug/", 7) == 0) return kLog;
+  constexpr size_t legacyLen = sizeof(kLegacyRoot) - 1;
+  const char* rest;
+  if (strncmp(path, kDataRoot, kDataRootLen) == 0 && path[kDataRootLen] == '/') {
+    rest = path + kDataRootLen + 1;
+  } else if (strncmp(path, kLegacyRoot, legacyLen) == 0 && path[legacyLen] == '/') {
+    rest = path + legacyLen + 1;
+  } else {
+    return isHiddenPath(path) ? kStore : kOther;  // /.crossdink-stats-backup; books, images, fonts
+  }
+  if (strncmp(rest, "sleep_frame", 11) == 0) return kFrame;
+  for (const char* cache : {"home_carousel_cache", "font-catalog", "fileindex", "library.idx"}) {
+    if (strncmp(rest, cache, strlen(cache)) == 0) return kCache;
+  }
+  if (strncmp(rest, "epub_", 5) == 0 || strncmp(rest, "xtc_", 4) == 0 || strncmp(rest, "txt_", 4) == 0) {
+    const char* slash = strchr(rest, '/');
+    return slash && !strchr(slash + 1, '/') && HalStorage::isBookUserData(slash + 1) ? kBook : kCache;
+  }
+  return kStore;
+}
+
+void noteSdWriteOp(const SdClass cls, const uint32_t bytes, const uint32_t us) {
+  sdWrites[cls].ops.fetch_add(1, std::memory_order_relaxed);
+  sdWrites[cls].bytes.fetch_add(bytes, std::memory_order_relaxed);
+  sdWrites[cls].us.fetch_add(us, std::memory_order_relaxed);
+}
+
+void noteSdReadBytes(const SdClass cls, const uint32_t bytes, const uint32_t us) {
+  sdReads[cls].bytes.fetch_add(bytes, std::memory_order_relaxed);
+  sdReads[cls].us.fetch_add(us, std::memory_order_relaxed);
+}
+
+// shortcut: remembers the last 64 paths read, so a wake that reads more
+// distinct files misses older repeats; widen it if P6 needs exact counts.
+struct ReadSeen {
+  uint32_t hash;
+  uint32_t count;
+};
+ReadSeen sdSeen[64];
+uint32_t sdSeenNext = 0;
+
+// Caller holds the storage lock. The second read of a path this wake logs it
+// once ("reread"), except books and other files outside the data folders.
+void noteSdReadOpenLocked(const char* path, const SdClass cls) {
+  sdReads[cls].ops.fetch_add(1, std::memory_order_relaxed);
+  const uint32_t h = hashPath(path, strlen(path));
+  ReadSeen* const seen = std::find_if(std::begin(sdSeen), std::end(sdSeen),
+                                      [h](const ReadSeen& s) { return s.count != 0 && s.hash == h; });
+  if (seen == std::end(sdSeen)) {
+    sdSeen[sdSeenNext++ % std::size(sdSeen)] = {h, 1};
+    return;
+  }
+  sdRereads[cls].fetch_add(1, std::memory_order_relaxed);
+  if (++seen->count == 2 && cls != kOther) LOG_DBG("SDW", "reread %s", path);
+}
+
+#define SDW_NOTE(ok, startUs, path, bytes)                                 \
+  do {                                                                     \
+    if (ok) noteSdWriteOp(sdClassOf(path), (bytes), micros() - (startUs)); \
+  } while (0)
+#else
+#define SDW_NOTE(ok, startUs, path, bytes) \
+  do {                                     \
+  } while (0)
+#endif
 }  // namespace
+
+#if CROSSDINK_PERF_LOG
+void HalStorage::logSdSummary(const char* when) {
+  using UL = unsigned long;
+  UL w[3] = {}, r[3] = {}, rep = 0;
+  for (int c = 0; c < kSdClasses; c++) {
+    const UL cw[3] = {sdWrites[c].ops.load(), sdWrites[c].bytes.load(), sdWrites[c].us.load() / 1000};
+    const UL cr[3] = {sdReads[c].ops.load(), sdReads[c].bytes.load(), sdReads[c].us.load() / 1000};
+    const UL crep = sdRereads[c].load();
+    for (int i = 0; i < 3; i++) w[i] += cw[i], r[i] += cr[i];
+    rep += crep;
+    if (cw[0] | cr[0]) {
+      LOG_DBG("SDW", "%s %s: wr %lu/%luB/%lums rd %lu/%luB/%lums rep %lu", when, kSdClassNames[c], cw[0], cw[1], cw[2],
+              cr[0], cr[1], cr[2], crep);
+    }
+  }
+  LOG_DBG("SDW", "%s summary: wr %lu/%luB/%lums rd %lu/%luB/%lums rep %lu", when, w[0], w[1], w[2], r[0], r[1], r[2],
+          rep);
+}
+#endif
 
 void HalStorage::shutdown() {
   const bool current = libraryScanCurrent();
@@ -583,14 +686,33 @@ std::vector<String> HalStorage::listFiles(const char* path, int maxFiles) {
   HAL_STORAGE_WRAPPED_CALL(listFiles, readablePathLocked(path), maxFiles);
 }
 
-String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, readablePathLocked(path)); }
+#if CROSSDINK_PERF_LOG
+// A whole-file read for the [SDW] summary: one read op, its bytes and time.
+#define HAL_STORAGE_COUNTED_READ(bytesOf, method, ...) \
+  const uint32_t startUs = micros();                   \
+  const SdClass cls = sdClassOf(path);                 \
+  auto result = [&] {                                  \
+    StorageLock lock;                                  \
+    noteSdReadOpenLocked(path, cls);                   \
+    return SDCard.method(__VA_ARGS__);                 \
+  }();                                                 \
+  noteSdReadBytes(cls, (bytesOf), micros() - startUs); \
+  return result;
+#else
+#define HAL_STORAGE_COUNTED_READ(bytesOf, method, ...) HAL_STORAGE_WRAPPED_CALL(method, __VA_ARGS__)
+#endif
 
+String HalStorage::readFile(const char* path) {
+  HAL_STORAGE_COUNTED_READ(result.length(), readFile, readablePathLocked(path));
+}
+
+// Bytes are not counted here: the stream's sink owns them.
 bool HalStorage::readFileToStream(const char* path, Print& out, size_t chunkSize) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToStream, readablePathLocked(path), out, chunkSize);
+  HAL_STORAGE_COUNTED_READ(0, readFileToStream, readablePathLocked(path), out, chunkSize);
 }
 
 size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, readablePathLocked(path), buffer, bufferSize, maxBytes);
+  HAL_STORAGE_COUNTED_READ(result, readFileToBuffer, readablePathLocked(path), buffer, bufferSize, maxBytes);
 }
 
 bool HalStorage::readFileToString(const char* moduleName, const std::string& path, size_t cap, std::string& out) {
@@ -625,6 +747,7 @@ bool HalStorage::writeFile(const char* path, const String& content) {
     ensureParentLocked(path);
     ok = SDCard.writeFile(path, content);
   }
+  SDW_NOTE(ok, startUs, path, content.length());
   SDW_LOG_TIMED(ok, startUs, "write - %s %u B", path, static_cast<unsigned>(content.length()));
   return ok;
 }
@@ -639,6 +762,7 @@ bool HalStorage::ensureDirectoryExists(const char* path) {
     existed = SDCard.exists(path);
     ok = SDCard.ensureDirectoryExists(path);
   }
+  SDW_NOTE(ok && !existed, startUs, path, 0);
   SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
@@ -740,6 +864,7 @@ class HalFile::Impl {
   }
   void tagWrite(const char* module, const char* path) {
     writeModule = module ? module : "-";
+    sdClass = sdClassOf(path);
     if (!path) path = "";
     // Too long: keep the root and the file name, drop the middle.
     const size_t len = strlen(path);
@@ -758,6 +883,7 @@ class HalFile::Impl {
   uint32_t openUs = 0;
   uint32_t waitUs = 0;  // waiting for the storage lock, all calls
   bool created = false;
+  SdClass sdClass = kOther;  // of the path opened, for the [SDW] summary
 #endif
 };
 
@@ -853,7 +979,13 @@ HalFile HalStorage::open(const char* path, const oflag_t oflag) {
     return failed;
   }
 #if CROSSDINK_PERF_LOG
-  if (writing) impl->tagWrite(nullptr, path, timing);
+  if (writing) {
+    impl->tagWrite(nullptr, path, timing);
+  } else if (!impl->file.isDirectory()) {
+    impl->sdClass = sdClassOf(path);
+    StorageLock lock;
+    noteSdReadOpenLocked(path, impl->sdClass);
+  }
 #endif
   impl->merge = std::move(merge);
   return HalFile(std::move(impl));
@@ -870,6 +1002,7 @@ bool HalStorage::mkdir(const char* path, const bool pFlag) {
     existed = SDCard.exists(path);
     ok = SDCard.mkdir(path, pFlag);
   }
+  SDW_NOTE(ok && !existed, startUs, path, 0);
   SDW_LOG_TIMED(ok && !existed, startUs, "mkdir %s", path);
   return ok;
 #else
@@ -896,6 +1029,7 @@ bool HalStorage::remove(const char* path) {
       ok = true;
     }
   }
+  SDW_NOTE(ok, startUs, path, 0);
   SDW_LOG_TIMED(ok, startUs, "remove %s", path);
   return ok;
 }
@@ -921,6 +1055,7 @@ bool HalStorage::rename(const char* oldPath, const char* newPath) {
       }
     }
   }
+  SDW_NOTE(ok, startUs, newPath, 0);
   SDW_LOG_TIMED(ok, startUs, "rename %s -> %s", oldPath, newPath);
   return ok;
 }
@@ -987,6 +1122,13 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
     fsFile.close();
     return false;
   }
+#if CROSSDINK_PERF_LOG
+  impl->sdClass = sdClassOf(path);
+  {
+    StorageLock lock;
+    noteSdReadOpenLocked(path, impl->sdClass);
+  }
+#endif
   file = HalFile(std::move(impl));
   return true;
 }
@@ -1165,6 +1307,7 @@ int HalFile::read(void* buf, size_t count) {
   const uint32_t readUs = micros() - startUs;
   PerfLog::noteSdRead(n > 0 ? static_cast<uint32_t>(n) : 0, readUs);
   PowerCounters::sdRead(n > 0 ? static_cast<uint32_t>(n) : 0, readUs);
+  noteSdReadBytes(impl->sdClass, n > 0 ? static_cast<uint32_t>(n) : 0, readUs);
   return n;
 #else
   HAL_FILE_WRAPPED_CALL(read, buf, count);
@@ -1238,6 +1381,7 @@ bool HalFile::close() {
   const uint32_t openUs = impl->openUs;
   uint32_t waitUs = impl->waitUs;
   const bool created = impl->created;
+  const SdClass sdClass = impl->sdClass;
   const uint32_t callUs = micros();
   uint32_t closeUs = 0;
 #endif
@@ -1260,6 +1404,7 @@ bool HalFile::close() {
 #if CROSSDINK_PERF_LOG
   // Opened to write: a truncating open is a mutation even with no bytes.
   const uint32_t totalUs = openUs + us + closeUs + waitUs;
+  if (path[0] != '\0') noteSdWriteOp(sdClass, bytes, totalUs);
   if (path[0] != '\0' && totalUs >= SDW_SLOW_US) {
     LOG_DBG("SDW", "write %s %s %lu B %lu ms slow %lu ms: open=%lu close=%lu wait=%lu ms new=%d", module ? module : "-",
             path, static_cast<unsigned long>(bytes), static_cast<unsigned long>(us / 1000),
