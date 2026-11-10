@@ -341,6 +341,11 @@ class CrossPointWebServer {
   void handleGetStatusBars() const;
   void handlePostStatusBars();
 
+  // Theme pack handlers
+  void handleThemesPage() const;
+  void sendThemeState() const;
+  void handleThemePick();
+
   // Font management handlers
   void handleFontsPage() const;
   void handleLogsPage() const;

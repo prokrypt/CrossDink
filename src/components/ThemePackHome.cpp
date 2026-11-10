@@ -3,12 +3,34 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
 
 namespace ThemePackHome {
+
+namespace {
+std::string* gSink = nullptr;
+constexpr size_t kMaxSinkBytes = 2048;
+}  // namespace
+
+void setProblemSink(std::string* sink) { gSink = sink; }
+
+void report(const char* format, ...) {
+  char line[192];
+  va_list args;
+  va_start(args, format);
+  std::vsnprintf(line, sizeof(line), format, args);
+  va_end(args);
+  LOG_ERR("THM", "%s", line);
+  if (gSink && gSink->size() < kMaxSinkBytes) {
+    gSink->append(line);
+    gSink->push_back('\n');
+  }
+}
+
 namespace {
 
 // Indexed by the enums in the header.
@@ -58,7 +80,7 @@ uint8_t parseHeight(const JsonVariantConst value, const char* file, const int bl
   char* end = nullptr;
   const long percent = std::strtol(text, &end, 10);
   if (end != text && std::strcmp(end, "%") == 0 && percent > 0) return static_cast<uint8_t>(std::min(percent, 100L));
-  LOG_ERR("THM", "%s: block %d: height must be \"N%%\" or \"flex\", ignored", file, block);
+  report("%s: block %d: height must be \"N%%\" or \"flex\", ignored", file, block);
   return 0;
 }
 
@@ -69,15 +91,15 @@ uint8_t parseCount(const JsonVariantConst value, const int fallback, const int m
 void parseEntry(const char* item, const char* file, const int block, Layout& out) {
   // One entry stays free for the Settings entry ensureSettings() may add.
   if (out.entryCount >= kMaxEntries - 1) {
-    LOG_ERR("THM", "%s: block %d: more than %d entries, %s ignored", file, block, kMaxEntries - 1, item);
+    report("%s: block %d: more than %d entries, %s ignored", file, block, kMaxEntries - 1, item);
     return;
   }
   Entry entry;
   const bool folder = std::strncmp(item, "folder:", 7) == 0;
   if (std::strncmp(item, "page:", 5) == 0) {
     if (!validPageId(item + 5)) {
-      LOG_ERR("THM", "%s: block %d: %s needs a file name under %u bytes, ignored", file, block, item,
-              static_cast<unsigned>(kTextBytes));
+      report("%s: block %d: %s needs a file name under %u bytes, ignored", file, block, item,
+             static_cast<unsigned>(kTextBytes));
       return;
     }
     copyText(entry.path, sizeof(entry.path), item + 5);
@@ -85,21 +107,21 @@ void parseEntry(const char* item, const char* file, const int block, Layout& out
   } else if (folder || std::strncmp(item, "book:", 5) == 0) {
     const char* path = item + (folder ? 7 : 5);
     if (!validCardPath(path) || !copyText(entry.path, sizeof(entry.path), path)) {
-      LOG_ERR("THM", "%s: block %d: %s needs an absolute card path under %u bytes, ignored", file, block, item,
-              static_cast<unsigned>(sizeof(entry.path)));
+      report("%s: block %d: %s needs an absolute card path under %u bytes, ignored", file, block, item,
+             static_cast<unsigned>(sizeof(entry.path)));
       return;
     }
     entry.action = folder ? Action::Folder : Action::Book;
   } else {
     const int action = indexOf(kActionNames, item);
     if (action < 0) {
-      LOG_ERR("THM", "%s: block %d: entry %s unknown, ignored", file, block, item);
+      report("%s: block %d: entry %s unknown, ignored", file, block, item);
       return;
     }
     entry.action = static_cast<Action>(action);
 #if !CROSSDINK_GOODIES
     if (entry.action == Action::Goodies) {
-      LOG_ERR("THM", "%s: block %d: goodies is only in debug builds, ignored", file, block);
+      report("%s: block %d: goodies is only in debug builds, ignored", file, block);
       return;
     }
 #endif
@@ -113,7 +135,7 @@ void parseMenu(const JsonObjectConst obj, const char* file, const int index, Blo
   block.type = BlockType::Menu;
   block.style = std::strcmp(style, "grid") == 0 ? Style::Grid : Style::List;
   if (style[0] != '\0' && std::strcmp(style, "grid") && std::strcmp(style, "list")) {
-    LOG_ERR("THM", "%s: block %d: menu style %s unknown, using list", file, index, style);
+    report("%s: block %d: menu style %s unknown, using list", file, index, style);
   }
   block.columns = block.style == Style::Grid ? parseCount(obj["columns"], 2, kMaxColumns) : 1;
   block.first = out.entryCount;
@@ -125,12 +147,12 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
   const char* typeName = obj["type"] | "";
   const int type = indexOf(kTypeNames, typeName);
   if (type < 0) {
-    LOG_ERR("THM", "%s: block %d: type \"%s\" unknown, ignored", file, index, typeName);
+    report("%s: block %d: type \"%s\" unknown, ignored", file, index, typeName);
     return;
   }
   for (const JsonPairConst kv : obj) {
     if (indexOf(kBlockKeys, kv.key().c_str()) < 0) {
-      LOG_ERR("THM", "%s: block %d: key %s not supported, ignored", file, index, kv.key().c_str());
+      report("%s: block %d: key %s not supported, ignored", file, index, kv.key().c_str());
     }
   }
   Block block;
@@ -140,18 +162,17 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
   switch (block.type) {
     case BlockType::Covers: {
       const int coverStyle = style[0] == '\0' ? static_cast<int>(Style::Row) : indexOf(kCoverStyles, style);
-      if (coverStyle < 0) LOG_ERR("THM", "%s: block %d: covers style %s unknown, using row", file, index, style);
+      if (coverStyle < 0) report("%s: block %d: covers style %s unknown, using row", file, index, style);
       block.style = coverStyle < 0 ? Style::Row : static_cast<Style>(coverStyle);
       const int left = kMaxBooks - out.bookCount;
       if (left <= 0) {
-        LOG_ERR("THM", "%s: block %d: all %d books already shown, ignored", file, index, kMaxBooks);
+        report("%s: block %d: all %d books already shown, ignored", file, index, kMaxBooks);
         return;
       }
       const int wanted =
           block.style == Style::Single ? 1 : parseCount(obj["count"], block.style == Style::Grid ? 6 : 3, kMaxBooks);
       block.count = static_cast<uint8_t>(std::min(wanted, left));
-      if (block.count < wanted)
-        LOG_ERR("THM", "%s: block %d: count cut to %d (%d books in all)", file, index, left, kMaxBooks);
+      if (block.count < wanted) report("%s: block %d: count cut to %d (%d books in all)", file, index, left, kMaxBooks);
       block.columns = block.style == Style::Grid  ? parseCount(obj["columns"], 3, kMaxColumns)
                       : block.style == Style::Row ? block.count
                                                   : 1;
@@ -163,7 +184,7 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
         const char* name = item | "";
         const int stat = indexOf(kStatNames, name);
         if (stat < 0 || block.count >= kMaxStats) {
-          LOG_ERR("THM", "%s: block %d: stat %s %s, ignored", file, index, name, stat < 0 ? "unknown" : "past 4");
+          report("%s: block %d: stat %s %s, ignored", file, index, name, stat < 0 ? "unknown" : "past 4");
           continue;
         }
         block.stats[block.count++] = static_cast<Stat>(stat);
@@ -174,8 +195,8 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
       break;
     case BlockType::Text:
       if (out.textCount >= kMaxTexts || !copyText(out.texts[out.textCount], kTextBytes, obj["text"] | "")) {
-        LOG_ERR("THM", "%s: block %d: text needs 1 to %u bytes, at most %d text blocks; ignored", file, index,
-                static_cast<unsigned>(kTextBytes - 1), kMaxTexts);
+        report("%s: block %d: text needs 1 to %u bytes, at most %d text blocks; ignored", file, index,
+               static_cast<unsigned>(kTextBytes - 1), kMaxTexts);
         return;
       }
       block.first = out.textCount++;
@@ -185,8 +206,8 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
       const char* name = obj["file"] | "";
       if (out.imageCount >= kMaxImages || !validPackFile(name) ||
           !copyText(out.images[out.imageCount], kTextBytes, name)) {
-        LOG_ERR("THM", "%s: block %d: image \"%s\" must be a file in the pack folder, at most %d images; ignored", file,
-                index, name, kMaxImages);
+        report("%s: block %d: image \"%s\" must be a file in the pack folder, at most %d images; ignored", file, index,
+               name, kMaxImages);
         return;
       }
       block.first = out.imageCount++;
@@ -200,7 +221,7 @@ void parseBlock(const JsonObjectConst obj, const char* file, const int index, La
       break;
   }
   if (block.count == 0) {
-    LOG_ERR("THM", "%s: block %d: %s has no items, ignored", file, index, typeName);
+    report("%s: block %d: %s has no items, ignored", file, index, typeName);
     return;
   }
   out.blocks[out.blockCount++] = block;
@@ -233,7 +254,7 @@ void scalePercents(const char* file, Layout& out) {
     if (out.blocks[i].height != kFlex) total += out.blocks[i].height;
   }
   if (total <= 100) return;
-  LOG_ERR("THM", "%s: heights add up to %d%%, scaled to 100%%", file, total);
+  report("%s: heights add up to %d%%, scaled to 100%%", file, total);
   for (uint8_t i = 0; i < out.blockCount; ++i) {
     uint8_t& height = out.blocks[i].height;
     if (height != 0 && height != kFlex) height = static_cast<uint8_t>(std::max(1, height * 100 / total));
@@ -246,12 +267,12 @@ bool parse(const JsonObjectConst root, const char* file, Layout& out) {
   out = Layout{};
   for (const JsonPairConst kv : root) {
     if (std::strcmp(kv.key().c_str(), "blocks") != 0) {
-      LOG_ERR("THM", "%s: key %s not supported, ignored", file, kv.key().c_str());
+      report("%s: key %s not supported, ignored", file, kv.key().c_str());
     }
   }
   const JsonArrayConst blocks = root["blocks"].as<JsonArrayConst>();
   if (blocks.isNull()) {
-    LOG_ERR("THM", "%s: no \"blocks\" list", file);
+    report("%s: no \"blocks\" list", file);
     return false;
   }
   int index = 0;
@@ -259,17 +280,17 @@ bool parse(const JsonObjectConst root, const char* file, Layout& out) {
     ++index;
     // One block stays free for the menu ensureSettings() may add.
     if (out.blockCount >= kMaxBlocks - 1) {
-      LOG_ERR("THM", "%s: more than %d blocks, the rest ignored", file, kMaxBlocks - 1);
+      report("%s: more than %d blocks, the rest ignored", file, kMaxBlocks - 1);
       break;
     }
     if (!value.is<JsonObjectConst>()) {
-      LOG_ERR("THM", "%s: block %d is not an object, ignored", file, index);
+      report("%s: block %d is not an object, ignored", file, index);
       continue;
     }
     parseBlock(value.as<JsonObjectConst>(), file, index, out);
   }
   if (out.blockCount == 0) {
-    LOG_ERR("THM", "%s: no usable blocks", file);
+    report("%s: no usable blocks", file);
     return false;
   }
   ensureSettings(file, out);
@@ -283,12 +304,12 @@ bool parsePage(const JsonObjectConst root, const char* file, const char* id, Lay
     const char* key = kv.key().c_str();
     if (std::strcmp(key, "title") && std::strcmp(key, "style") && std::strcmp(key, "columns") &&
         std::strcmp(key, "items")) {
-      LOG_ERR("THM", "%s: key %s not supported, ignored", file, key);
+      report("%s: key %s not supported, ignored", file, key);
     }
   }
   if (!copyText(out.texts[0], kTextBytes, root["title"] | "")) {
     if (!root["title"].isNull()) {
-      LOG_ERR("THM", "%s: title needs 1 to %u bytes, using %s", file, static_cast<unsigned>(kTextBytes - 1), id);
+      report("%s: title needs 1 to %u bytes, using %s", file, static_cast<unsigned>(kTextBytes - 1), id);
     }
     std::snprintf(out.texts[0], kTextBytes, "%s", id);
   }
@@ -296,7 +317,7 @@ bool parsePage(const JsonObjectConst root, const char* file, const char* id, Lay
   // parseEntry() keeps the last entry for Home's Settings; a page has Back instead.
   parseMenu(root, file, 1, out.blocks[0], out);
   if (out.blocks[0].count == 0) {
-    LOG_ERR("THM", "%s: no usable items", file);
+    report("%s: no usable items", file);
     return false;
   }
   out.blockCount = 1;

@@ -19,6 +19,7 @@ the IP address shown on the device screen.
 | `GET` | `/files` | File manager page |
 | `GET` | `/settings` | Web settings page |
 | `GET` | `/fonts` | SD-card font manager page |
+| `GET` | `/themes` | SD-card theme pack page |
 | `GET` | `/js/jszip.min.js` | JavaScript asset used by the file manager |
 
 ## Device Status
@@ -350,6 +351,41 @@ Successful response:
 
 ```json
 {"ok":true}
+```
+
+## Theme Pack API
+
+Theme packs are described in [SD Card Themes](./themes.md). The Themes page
+uploads a pack with `/mkdir` and `/upload` into `/themes/<name>/`.
+
+### `GET /api/themes`
+
+```bash
+curl http://crosspoint.local/api/themes
+```
+
+Response:
+
+```json
+{"active":"shelf","loaded":true,"problems":"/themes/shelf/home.json: block 3: key colour not supported, ignored\n","packs":["bold","shelf"]}
+```
+
+- `active`: the picked pack, `""` for none.
+- `loaded`: false when the picked pack did not load (the built-in theme shows).
+- `problems`: one line per problem from the last load of the picked pack and
+  the last pick's check of its user pages, 2 KB at most.
+
+### `POST /api/themes/pick`
+
+Picks a pack (`""` turns packs off), applies it at once and saves the setting.
+Picking the same pack again re-reads it and checks every `pages/*.json`.
+The response is the same as `GET /api/themes`. Unknown names get 404.
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"shelf"}' \
+  http://crosspoint.local/api/themes/pick
 ```
 
 ## OPDS Server API

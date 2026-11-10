@@ -70,9 +70,11 @@
 #include "TaskCores.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
+#include "activities/RenderLock.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/util/RemoteImageActivity.h"
 #include "components/HeaderDate.h"
+#include "components/ThemePack.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -81,6 +83,7 @@
 #include "html/PluginHostJs.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
+#include "html/ThemesPageHtml.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "network/NetworkName.h"
 #include "network/SdWriteBehind.h"
@@ -884,6 +887,11 @@ void CrossPointWebServer::registerFullRoutes() {
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+  // Theme pack endpoints (upload goes through /mkdir and /upload)
+  server->on("/themes", HTTP_GET, [this] { handleThemesPage(); });
+  server->on("/api/themes", HTTP_GET, [this] { sendThemeState(); });
+  server->on("/api/themes/pick", HTTP_POST, [this] { handleThemePick(); });
 
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
@@ -4343,6 +4351,59 @@ void CrossPointWebServer::handleFontDelete() {
     server->send(500, "application/json", "{\"error\":\"Delete failed\"}");
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
+}
+
+// --- Theme pack handlers ---
+
+void CrossPointWebServer::handleThemesPage() const {
+  WEB_OVERRIDE("themes.html", "text/html");
+  sendStaticContent(server.get(), ThemesPageHtml, sizeof(ThemesPageHtml), ThemesPageHtmlETag);
+}
+
+// {"active": name or "", "loaded": bool, "packs": [names], "problems": "line\nline"}.
+void CrossPointWebServer::sendThemeState() const {
+  JsonDocument doc;
+  {
+    RenderLock lock;  // sync() replaces the pack and its problem list under the same lock
+    doc["active"] = SETTINGS.uiThemePack;
+    doc["loaded"] = ThemePack::active();
+    doc["problems"] = ThemePack::problems();
+  }
+  const JsonArray packs = doc["packs"].to<JsonArray>();
+  for (const std::string& name : ThemePack::list()) packs.add(name);
+  String body;
+  serializeJson(doc, body);
+  server->send(200, "application/json", body);
+}
+
+void CrossPointWebServer::handleThemePick() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server->arg("plain")) || !doc["name"].is<const char*>()) {
+    server->send(400, "text/plain", "Invalid request");
+    return;
+  }
+  const char* name = doc["name"];
+  if (name[0] != '\0') {
+    const auto packs = ThemePack::list();
+    if (std::find(packs.begin(), packs.end(), name) == packs.end()) {
+      server->send(404, "text/plain", "No such theme pack");
+      return;
+    }
+  }
+  {
+    // As the on-device picker: picking again re-reads the pack.
+    RenderLock lock;
+    snprintf(SETTINGS.uiThemePack, sizeof(SETTINGS.uiThemePack), "%s", name);
+    UITheme::getInstance().reload(true);
+    ThemePack::checkPages();
+  }
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("WEB", "Failed to save settings");
+    server->send(500, "text/plain", "Failed to save settings");
+    return;
+  }
+  LOG_INF("WEB", "Theme pack: %s", name[0] ? name : "(none)");
+  sendThemeState();
 }
 
 void CrossPointWebServer::suspendTransferServices() {

@@ -1,0 +1,16 @@
+.pack {
+        border-bottom: 1px solid var(--border-color);
+        padding: 12px 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+.pack:last-child { border-bottom: none; }
+.pack-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.pack-meta { color: var(--label-color); font-size: 0.9em; }
+.problems { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.problems li { margin: 4px 0; font-family: monospace; font-size: 0.9em; }
+.problems li.empty { list-style: none; margin-left: -20px; font-family: inherit; }
+.upload-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.upload-form input[type="file"] { flex: 1; min-width: 200px; }

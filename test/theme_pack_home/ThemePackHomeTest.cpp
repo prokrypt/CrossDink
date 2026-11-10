@@ -224,3 +224,15 @@ TEST(ThemePackHome, SamplePacksParseCleanly) {
   EXPECT_STREQ(l.texts[0], "Reading");
   EXPECT_EQ(gLogErrors, before);
 }
+
+TEST(ThemePackHome, ProblemSinkCollectsLinesWhileSet) {
+  std::string sink;
+  TPH::setProblemSink(&sink);
+  TPH::Layout l;
+  EXPECT_TRUE(parse(R"({"blocks": [{"type": "weather"}, {"type": "header"}]})", l));
+  TPH::setProblemSink(nullptr);
+  const std::string expected = "home.json: block 1: type \"weather\" unknown, ignored\n";
+  EXPECT_EQ(sink, expected);
+  EXPECT_TRUE(parse(R"({"blocks": [{"type": "weather"}, {"type": "header"}]})", l));
+  EXPECT_EQ(sink, expected);  // nothing added once the sink is cleared
+}

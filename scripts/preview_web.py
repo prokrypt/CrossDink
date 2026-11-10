@@ -33,6 +33,7 @@ PAGES = {
     "files":    ("/files",    "Files - CrossDink",           "files",    '  <script src="/js/jszip.min.js"></script>'),
     "settings": ("/settings", "Settings - CrossDink Reader", "settings", ""),
     "fonts":    ("/fonts",    "Fonts - CrossDink",           "fonts",    ""),
+    "themes":   ("/themes",   "Themes - CrossDink",          "themes",   ""),
     "logs":     ("/logs",     "Logs - CrossDink",            "logs",     ""),
 }
 ROUTE_TO_SLUG = {route: slug for slug, (route, *_rest) in PAGES.items()}
@@ -64,7 +65,7 @@ def render_page(slug, live=True):
         "styles": read(WEB, "pages", f"{slug}.css"),
         "body": read(WEB, "pages", f"{slug}.html"),
         "script": f"<script>\n{js}\n</script>" if js else "",
-        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "", "cls_logs": "",
+        "cls_home": "", "cls_files": "", "cls_settings": "", "cls_fonts": "", "cls_themes": "", "cls_logs": "",
     }
     values[f"cls_{active}"] = ' class="active"'
     base = read(WEB, "templates", "base.html")
@@ -84,6 +85,8 @@ MOCK_API = {
         {"name": "Bookerly", "sizes": [10, 12, 14], "files": [{"size": 120000}, {"size": 140000}]},
         {"name": "Literata", "sizes": [12], "files": [{"size": 160000}]},
     ]},
+    "/api/themes": {"active": "shelf", "loaded": True, "packs": ["bold", "shelf"],
+                    "problems": "/themes/shelf/home.json: block 3: key colour not supported, ignored\n"},
     "/api/wifi": [
         {"ssid": "HomeNetwork", "hasPassword": True, "isLastConnected": True},
         {"ssid": "Library Guest", "hasPassword": False, "isLastConnected": False},
