@@ -214,6 +214,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - OPDS servers get a Use Server Filename toggle (default off) next to Filename: when on, downloads use the server's filename and fall back to the selected Author - Title or Title - Author format when the server name is missing or unsafe. Servers set to "Server filename" keep it as the toggle.
 - WebDAV uploads no longer stall the web server: the file list, downloads and other requests keep answering while a large file is being uploaded.
 - Faster chapter indexing with SD fonts (duplicate-character removal no longer slows down on large or CJK chapters), smaller font lookup tables in RAM for fonts that mix basic and extended Unicode, and Cover Grid Home no longer repaints an identical frame after opening.
+- Recent books and Goodies knobs save in place to two copies instead of through a temporary file, so a save no longer creates a file on the SD card (about 140 ms on slow cards); if a save is cut off, the backup copy loads.
 
 ### Fixed
 - Password fields: while typing, the last character stays readable as a whole character, so an accented or non-Latin character no longer shows as a masked symbol plus a stray byte.
