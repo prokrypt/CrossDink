@@ -1,6 +1,7 @@
 #include "HeldWrites.h"
 
 #include <HalStorage.h>
+#include <InPlaceFileWrite.h>
 #include <Logging.h>
 #include <PersistableStore.h>
 #include <uzlib.h>
@@ -12,7 +13,6 @@
 
 #include "CrossPointSettings.h"
 #include "util/FileContentEquals.h"
-#include "util/InPlaceFileWrite.h"
 
 #ifndef SIMULATOR
 #include <sdkconfig.h>

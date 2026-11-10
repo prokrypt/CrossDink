@@ -3,6 +3,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <InPlaceFileWrite.h>
 #include <Logging.h>
 #include <Serialization.h>
 #include <Txt.h>
@@ -20,7 +21,6 @@
 #include "RecentBooksStore.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOSyncAuto.h"
-#include "util/InPlaceFileWrite.h"
 
 using RecentBookProgress::SyncMark;
 

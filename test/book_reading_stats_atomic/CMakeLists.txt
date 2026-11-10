@@ -11,6 +11,7 @@ target_include_directories(BookReadingStatsAtomicTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/src
   ${REPO_ROOT}/src/activities/reader
+  ${REPO_ROOT}/lib/Serialization
   ${REPO_ROOT}/lib/uzlib/src
 )
 
@@ -33,6 +34,7 @@ target_include_directories(GlobalStatsSlotsTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/src
   ${REPO_ROOT}/src/activities/reader
+  ${REPO_ROOT}/lib/Serialization
   ${REPO_ROOT}/lib/uzlib/src
 )
 target_link_libraries(GlobalStatsSlotsTest PRIVATE crosspoint_test_common GTest::gtest_main)

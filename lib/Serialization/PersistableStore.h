@@ -55,20 +55,19 @@ class PersistableStoreBase {
   // Serializes doc and writes it to path (ensures /.crossdink exists). Logs on failure.
   static bool writeDocToFile(const char* path, const JsonDocument& doc);
 
-  // Writes through path.tmp and keeps path.bak until replacement succeeds. readDocFromFile()
-  // recovers that backup after an interrupted replacement.
+  // Rewrites path.bak, then path, in place (no temp file or rename), so one copy always
+  // parses; readDocFromFile() falls back to path.bak. Deleting the store means removing both.
   static bool writeDocToFileAtomically(const char* path, const JsonDocument& doc);
   // Serializes doc into out (kept here so stores do not each instantiate serializeJson).
   static void serializeDoc(const JsonDocument& doc, String& out);
   // Same, for an already serialized document; skips the write when path already holds it.
   static bool writeStringToFileAtomically(const char* path, const String& json);
-  // Moves a fully written path.tmp over path the same way (path.bak until the rename lands).
-  static bool replaceWithTemp(const char* path);
-  // Restores path from path.bak left by an interrupted replaceWithTemp(). Returns whether path exists.
+  // Restores a missing path from path.bak (an interrupted temp-file replacement). Returns whether path exists.
   static bool recoverBackup(const char* path);
 
   // Reads path and parses it into doc. Returns false silently when the file
   // does not exist (expected on first boot); logs on read/parse failure.
+  // path.bak is used when path is missing or does not parse.
   // A copy held for a later write (heldJson) wins over the file.
   static bool readDocFromFile(const char* path, JsonDocument& doc);
 

@@ -23,7 +23,7 @@ CrossInk's `/.crosspoint` is read in place: a `/.crossdink` file or folder that 
 ├── settings.bin.bak        # Legacy binary settings file after migration, if present
 ├── state.json              # Last-opened book and sleep/session state
 ├── state.bin.bak           # Legacy binary state file after migration, if present
-├── recent.json             # Reading history for Home and Library
+├── recent.json             # Reading history for Home and Library (+ .bak copy, rewritten in place)
 ├── library.idx             # Library titles, authors, paths and sort indexes
 ├── recent.bin.bak          # Legacy binary recent-books file after migration, if present
 ├── wifi.json               # Saved Wi-Fi networks

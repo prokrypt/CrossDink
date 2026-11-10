@@ -1,8 +1,11 @@
 #include "PersistableStore.h"
 
 #include <HalStorage.h>
+#include <InPlaceFileWrite.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
+
+#include <cstring>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
   Storage.mkdir("/.crossdink");
@@ -27,50 +30,23 @@ void PersistableStoreBase::serializeDoc(const JsonDocument& doc, String& out) {
 }
 
 bool PersistableStoreBase::writeStringToFileAtomically(const char* path, const String& json) {
+  // Two copies rewritten in place, .bak first, so one always parses (readDocFromFile
+  // falls back to .bak). No temp file, rename or remove: creating recent.json.tmp
+  // took ~139 ms on the card. Padding spaces from a longer save are ignored.
   // Callers may save unchanged values; an identical file is not rewritten.
-  if (Storage.exists(path) && Storage.readFile(path) == json) return true;
+  if (Storage.exists(path)) {
+    const String onCard = Storage.readFile(path);
+    size_t onCardLen = onCard.length();
+    while (onCardLen > 0 && onCard[onCardLen - 1] == ' ') --onCardLen;
+    if (onCardLen == json.length() && strncmp(onCard.c_str(), json.c_str(), onCardLen) == 0) return true;
+  }
   Storage.mkdir("/.crossdink");
-
-  const std::string tempPath = std::string(path) + ".tmp";
-  if (Storage.exists(tempPath.c_str()) && !Storage.remove(tempPath.c_str())) {
-    LOG_ERR("PERSIST", "Failed to remove stale temporary file %s", tempPath.c_str());
-    return false;
-  }
-  if (!Storage.writeFile(tempPath.c_str(), json)) {
-    LOG_ERR("PERSIST", "Failed to write temporary file %s", tempPath.c_str());
-    return false;
-  }
-  return replaceWithTemp(path);
-}
-
-bool PersistableStoreBase::replaceWithTemp(const char* path) {
-  const std::string tempPath = std::string(path) + ".tmp";
   const std::string backupPath = std::string(path) + ".bak";
-  const bool hadOriginal = Storage.exists(path);
-  if (hadOriginal) {
-    if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
-      LOG_ERR("PERSIST", "Failed to remove stale backup %s", backupPath.c_str());
-      Storage.remove(tempPath.c_str());
-      return false;
-    }
-    if (!Storage.rename(path, backupPath.c_str())) {
-      LOG_ERR("PERSIST", "Failed to back up %s", path);
-      Storage.remove(tempPath.c_str());
-      return false;
-    }
-  }
-
-  if (!Storage.rename(tempPath.c_str(), path)) {
-    LOG_ERR("PERSIST", "Failed to replace %s", path);
-    if (hadOriginal && !Storage.rename(backupPath.c_str(), path)) {
-      LOG_ERR("PERSIST", "Failed to restore backup %s", backupPath.c_str());
-    }
-    Storage.remove(tempPath.c_str());
+  const auto* data = reinterpret_cast<const uint8_t*>(json.c_str());
+  if (!writeFileInPlace("PERSIST", backupPath.c_str(), data, json.length(), true) ||
+      !writeFileInPlace("PERSIST", path, data, json.length(), true)) {
+    LOG_ERR("PERSIST", "Failed to write %s", path);
     return false;
-  }
-
-  if (hadOriginal && Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
-    LOG_ERR("PERSIST", "Failed to remove completed backup %s", backupPath.c_str());
   }
   return true;
 }
@@ -99,14 +75,24 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
   }
   String json = Storage.readFile(readPath);
   if (json.isEmpty()) {
-    LOG_ERR("PERSIST", "Failed to read %s (empty)", path);
-    return false;
+    LOG_ERR("PERSIST", "Failed to read %s (empty)", readPath);
+  } else {
+    const auto error = deserializeJson(doc, json);
+    if (!error) return true;
+    LOG_ERR("PERSIST", "JSON parse error in %s: %s", readPath, error.c_str());
+    doc.clear();
   }
-  auto error = deserializeJson(doc, json);
+  // A save torn mid-write leaves path unreadable; its .bak copy was written first.
+  if (readPath != path) return false;
+  recoveryPath = std::string(path) + ".bak";
+  if (!Storage.exists(recoveryPath.c_str())) return false;
+  json = Storage.readFile(recoveryPath.c_str());
+  const auto error = deserializeJson(doc, json);
   if (error) {
-    LOG_ERR("PERSIST", "JSON parse error in %s: %s", path, error.c_str());
+    LOG_ERR("PERSIST", "JSON parse error in %s: %s", recoveryPath.c_str(), error.c_str());
     return false;
   }
+  LOG_ERR("PERSIST", "%s unreadable; loaded %s", path, recoveryPath.c_str());
   return true;
 }
 
