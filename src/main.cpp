@@ -18,6 +18,7 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Knobs.h>
+#include <LightRamp.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -3107,7 +3108,10 @@ static void updateFlashDuckLocked() {
     // 340-590 ms ahead of the swing, so a ramp from the plan dimmed far too early).
     const unsigned long window = std::min<unsigned long>(target - fromMs, FLASH_DUCK_DOWN_MS);
     const bool holding = left >= static_cast<int32_t>(window);
-    const unsigned long ramp = left <= 0 ? floor : holding ? from : floor + (from - floor) * left / window;
+    const unsigned long ramp =
+        left <= 0 ? floor
+        : holding ? from
+                  : lightRampLerp(from, floor, 1.0f - static_cast<float>(left) / static_cast<float>(window));
     level = std::max(floor, std::min<unsigned long>(flashDuckLevel, ramp));
     if (level == floor && !darkLogged) {
       darkLogged = true;
@@ -3124,10 +3128,10 @@ static void updateFlashDuckLocked() {
       LOG_DBG("LIGHT", "Flash duck: up at %u%%", flashDuckLevel / 100);
     }
     const unsigned long elapsed = now - flashDuckUpStartMs;
-    level = std::max<unsigned long>(flashDuckLevel,
-                                    elapsed >= FLASH_DUCK_UP_MS
-                                        ? FRONTLIGHT_DIM_FULL
-                                        : floor + (FRONTLIGHT_DIM_FULL - floor) * elapsed / FLASH_DUCK_UP_MS);
+    level = std::max<unsigned long>(
+        flashDuckLevel, elapsed >= FLASH_DUCK_UP_MS ? FRONTLIGHT_DIM_FULL
+                                                    : lightRampLerp(floor, FRONTLIGHT_DIM_FULL,
+                                                                    static_cast<float>(elapsed) / FLASH_DUCK_UP_MS));
   }
   if (level != flashDuckLevel) {
     if (level == FRONTLIGHT_DIM_FULL) {

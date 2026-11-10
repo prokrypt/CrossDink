@@ -1,0 +1,3 @@
+add_executable(LightRampTest LightRampTest.cpp)
+target_link_libraries(LightRampTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(LightRampTest)
