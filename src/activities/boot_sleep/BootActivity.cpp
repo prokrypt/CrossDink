@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "AppVersion.h"
@@ -19,6 +20,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
+#include "util/FrameCache.h"
 
 namespace {
 
@@ -29,9 +31,13 @@ constexpr int MAX_BOOT_IMAGE_DIMENSION = 4000;
 
 bool isBootImagePath(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
 
+// Set when a custom image was decoded; onEnter() caches the finished frame
+// after it is on the glass, so the next boot reads 48 KB instead of decoding.
+std::string pendingBootCachePath;
+
 // Letterboxed/centered draw matching BmpViewerActivity's simple centering
 // (no crop or invert options — boot has no settings surface of its own).
-void drawCenteredBootBitmap(const GfxRenderer& renderer, Bitmap& bitmap) {
+bool drawCenteredBootBitmap(const GfxRenderer& renderer, Bitmap& bitmap) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   int x, y;
@@ -62,7 +68,7 @@ void drawCenteredBootBitmap(const GfxRenderer& renderer, Bitmap& bitmap) {
   }
 
   renderer.clearScreen();
-  renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
+  return renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, 0, 0);
 }
 
 bool tryDrawCustomBootImage(const GfxRenderer& renderer, const std::string& path) {
@@ -70,6 +76,17 @@ bool tryDrawCustomBootImage(const GfxRenderer& renderer, const std::string& path
   if (!Storage.openFileForRead("BOOT", path, file)) {
     LOG_ERR("BOOT", "Failed to open custom boot image: %s", path.c_str());
     return false;
+  }
+
+  char variant[48];
+  snprintf(variant, sizeof(variant), "boot|%d|%d|%d", static_cast<int>(renderer.getOrientation()),
+           renderer.getScreenWidth(), renderer.getScreenHeight());
+  const std::string cachePath = frameCachePath(path, file, variant);
+  uint8_t* const frame[] = {renderer.getFrameBuffer()};
+  if (readFrameCache(cachePath, frame, 1, renderer.getBufferSize())) {
+    LOG_INF("BOOT", "Boot image cache hit");
+    file.close();
+    return true;
   }
 
   Bitmap bitmap(file, true);
@@ -87,7 +104,8 @@ bool tryDrawCustomBootImage(const GfxRenderer& renderer, const std::string& path
     return false;
   }
 
-  drawCenteredBootBitmap(renderer, bitmap);
+  // Clears any partial cache read; a failed decode still shows, uncached.
+  if (drawCenteredBootBitmap(renderer, bitmap)) pendingBootCachePath = cachePath;
   file.close();
   return true;
 }
@@ -147,7 +165,14 @@ void BootActivity::onEnter() {
     drawDefaultBootLogo(renderer);
   }
 
-  // RenderLock: setup()'s early PON may still be running on the render task.
-  RenderLock lock;
-  renderer.displayBuffer();
+  {
+    // RenderLock: setup()'s early PON may still be running on the render task.
+    RenderLock lock;
+    renderer.displayBuffer();
+  }
+  if (!pendingBootCachePath.empty()) {
+    const uint8_t* const frame[] = {renderer.getFrameBuffer()};
+    writeFrameCache(pendingBootCachePath, frame, 1, renderer.getBufferSize());
+    pendingBootCachePath.clear();
+  }
 }

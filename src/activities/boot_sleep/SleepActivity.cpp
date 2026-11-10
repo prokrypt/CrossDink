@@ -49,6 +49,7 @@
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
 #include "util/BmpLevelDecode.h"
+#include "util/FrameCache.h"
 #include "util/WorkerTask.h"
 
 namespace {
@@ -78,100 +79,14 @@ void refreshSleepGrayFrame(const GfxRenderer& renderer) {
   }
 }
 
-// Finished sleep frames (the B/W frame, or both Direct gray planes), so a
-// repeat of the same image skips the BMP decode.
-constexpr char SLEEP_CACHE_DIR[] = "/.crossdink/sleepcache";
-constexpr int SLEEP_CACHE_MAX_FILES = 128;
-
-// Hashes 16 chunks spread over the file, first and last included: mtime is a
-// fixed fallback while the clock is unset, so a same-size replacement needs this.
-// shortcut: a sampled hash misses an edit that touches none of the chunks; hash the whole file if that shows up.
-uint64_t sampledContentHash(FsFile& file) {
-  constexpr int kChunks = 16;
-  constexpr size_t kChunkBytes = 128;
-  const size_t restore = file.position();
-  const size_t size = file.fileSize();
-  uint64_t hash = 0;
-  char chunk[kChunkBytes];
-  for (int i = 0; i < kChunks; ++i) {
-    const size_t offset = size > kChunkBytes ? (size - kChunkBytes) / (kChunks - 1) * i : 0;
-    if (!file.seekSet(offset)) break;
-    const int n = file.read(chunk, kChunkBytes);
-    if (n <= 0) break;
-    hash = hash * 1099511628211ull ^ ZipFile::fnvHash64(chunk, static_cast<size_t>(n));
-  }
-  file.seekSet(restore);
-  return hash;
-}
-
-// Keyed by everything that changes the decoded output; the firmware version
-// covers decoder changes.
+// Keyed by everything that changes the decoded sleep output (FrameCache adds
+// the file identity and firmware version).
 std::string sleepCachePath(const GfxRenderer& renderer, const std::string& sourcePath, FsFile& file, bool gray) {
-  char params[112];
-  snprintf(params, sizeof(params), "|%016llx|%lu|%lu|%d|%d|%d|%d|%d|%d|",
-           static_cast<unsigned long long>(sampledContentHash(file)), static_cast<unsigned long>(file.fileSize()),
-           static_cast<unsigned long>(file.modificationTime()), static_cast<int>(SETTINGS.sleepScreenCoverMode),
+  char variant[64];
+  snprintf(variant, sizeof(variant), "sleep|%d|%d|%d|%d|%d|%d", static_cast<int>(SETTINGS.sleepScreenCoverMode),
            static_cast<int>(SETTINGS.sleepScreenCoverFilter), static_cast<int>(renderer.getOrientation()),
            renderer.getScreenWidth(), renderer.getScreenHeight(), gray ? 1 : 0);
-  const std::string key = sourcePath + params + AppVersion::version();
-  char path[64];
-  snprintf(path, sizeof(path), "%s/%016llx.bin", SLEEP_CACHE_DIR,
-           static_cast<unsigned long long>(ZipFile::fnvHash64(key.data(), key.size())));
-  return path;
-}
-
-bool readSleepCache(const std::string& path, uint8_t* const* buffers, int count, size_t bytes) {
-  if (!Storage.exists(path.c_str())) return false;
-  FsFile file;
-  if (!Storage.openFileForRead("SLP", path, file)) return false;
-  bool ok = file.fileSize() == count * bytes;
-  for (int i = 0; ok && i < count; ++i) ok = file.read(buffers[i], bytes) == static_cast<int>(bytes);
-  file.close();
-  if (!ok) {
-    LOG_ERR("SLP", "Bad sleep cache file %s, removing", path.c_str());
-    Storage.remove(path.c_str());
-  }
-  return ok;
-}
-
-// Drops the oldest file once the folder holds SLEEP_CACHE_MAX_FILES.
-// shortcut: oldest by FAT creation time, ties (no clock) drop an arbitrary file; fine for a cache.
-void trimSleepCache() {
-  auto dir = Storage.open(SLEEP_CACHE_DIR);
-  if (!dir || !dir.isDirectory()) return;
-  int files = 0;
-  uint32_t oldestTime = UINT32_MAX;
-  char name[32];
-  char oldest[32] = "";
-  for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-    if (!entry.isDirectory()) {
-      ++files;
-      const uint32_t created = entry.creationTime();
-      if (created < oldestTime && entry.getName(name, sizeof(name)) > 0) {
-        oldestTime = created;
-        memcpy(oldest, name, sizeof(oldest));
-      }
-    }
-    entry.close();
-  }
-  dir.close();
-  if (files < SLEEP_CACHE_MAX_FILES || oldest[0] == '\0') return;
-  const std::string victim = std::string(SLEEP_CACHE_DIR) + "/" + oldest;
-  Storage.remove(victim.c_str());
-}
-
-void writeSleepCache(const std::string& path, const uint8_t* const* buffers, int count, size_t bytes) {
-  if (!Storage.ensureDirectoryExists(SLEEP_CACHE_DIR)) return;
-  trimSleepCache();
-  FsFile file;
-  if (!Storage.openFileForWrite("SLP", path, file)) return;
-  bool ok = true;
-  for (int i = 0; ok && i < count; ++i) ok = file.write(buffers[i], bytes) == bytes;
-  file.close();
-  if (!ok) {
-    LOG_ERR("SLP", "Failed to write sleep cache %s", path.c_str());
-    Storage.remove(path.c_str());
-  }
+  return frameCachePath(sourcePath, file, variant);
 }
 
 bool sleepCoverFilterInvertsGeneratedScreen() {
@@ -992,7 +907,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const 
     if (!panelTask.start(preparePanel, &prep, 4096, "SleepPanel", /*uiCore=*/true)) preparePanel(&prep);
     uint8_t* const planes[] = {lsb.get(), msb.get()};
     const std::string cachePath = sleepCachePath(renderer, sourcePath, file, true);
-    const bool cacheHit = readSleepCache(cachePath, planes, 2, planeBytes);
+    const bool cacheHit = readFrameCache(cachePath, planes, 2, planeBytes);
     bool decoded = cacheHit;
     if (!cacheHit) {
       memset(lsb.get(), 0xFF, planeBytes);  // absolute white margins
@@ -1030,7 +945,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const 
     }
     renderer.copyGrayscalePlanes(lsb.get(), msb.get());
     refreshSleepGrayFrame(renderer);
-    if (!cacheHit) writeSleepCache(cachePath, planes, 2, planeBytes);  // the image is on the glass
+    if (!cacheHit) writeFrameCache(cachePath, planes, 2, planeBytes);  // the image is on the glass
     return true;
   }
   if (panelIdlePending) idlePanel(hasGreyscale && direct);
@@ -1045,7 +960,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const 
   uint8_t* const frame[] = {renderer.getFrameBuffer()};
   if (!hasGreyscale) {
     bwCachePath = sleepCachePath(renderer, sourcePath, file, false);
-    if (readSleepCache(bwCachePath, frame, 1, renderer.getBufferSize())) {
+    if (readFrameCache(bwCachePath, frame, 1, renderer.getBufferSize())) {
       LOG_INF("SLP", "Sleep cache hit in %lu ms", millis() - decodeStartMs);
       refreshSleepFrame(renderer);
       return true;
@@ -1069,7 +984,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap, FsFile& file, const 
 
   if (!hasGreyscale) {
     refreshSleepFrame(renderer);
-    writeSleepCache(bwCachePath, frame, 1, renderer.getBufferSize());  // under the async refresh
+    writeFrameCache(bwCachePath, frame, 1, renderer.getBufferSize());  // under the async refresh
     return true;
   }
 
