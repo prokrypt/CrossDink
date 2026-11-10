@@ -24,12 +24,23 @@ enum class ReaderStatusBarItem : uint8_t {
   TitleBook,
   TitleChapter,
   ChapterProgressPercentage,
+  Date,
   Count,
 };
 
+// CrossInk stores Date as 10 and ChapterProgressPercentage as 11, the reverse of CrossDink; settings imported
+// from CrossInk swap them.
+constexpr int crossInkReaderStatusBarItemValue(const int value) {
+  constexpr int chapterProgress = static_cast<int>(ReaderStatusBarItem::ChapterProgressPercentage);
+  constexpr int date = static_cast<int>(ReaderStatusBarItem::Date);
+  return value == chapterProgress ? date : value == date ? chapterProgress : value;
+}
+
 constexpr bool validReaderStatusBarItemValue(const int value, const bool clockAvailable) {
   return value >= 0 && value < static_cast<int>(ReaderStatusBarItem::Count) &&
-         (value != static_cast<int>(ReaderStatusBarItem::Clock) || clockAvailable);
+         ((value != static_cast<int>(ReaderStatusBarItem::Clock) &&
+           value != static_cast<int>(ReaderStatusBarItem::Date)) ||
+          clockAvailable);
 }
 
 // Glyph joining items when a bar is centered. Values are persisted; keep them stable.
@@ -77,9 +88,32 @@ struct ReaderStatusBarConfig {
   constexpr bool hasTextItems(bool clockAvailable) const {
     // cppcheck-suppress useStlAlgorithm ; plain constexpr loop over three slots per side
     for (const auto slot : slots) {
-      if (slot != ReaderStatusBarItem::Empty && (slot != ReaderStatusBarItem::Clock || clockAvailable)) return true;
+      if (slot != ReaderStatusBarItem::Empty &&
+          ((slot != ReaderStatusBarItem::Clock && slot != ReaderStatusBarItem::Date) || clockAvailable))
+        return true;
     }
     return false;
+  }
+};
+
+constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockAvailable) {
+  return value == static_cast<int>(ReaderStatusBarItem::Empty) ||
+         (clockAvailable && (value == static_cast<int>(ReaderStatusBarItem::Clock) ||
+                             value == static_cast<int>(ReaderStatusBarItem::Date))) ||
+         value == static_cast<int>(ReaderStatusBarItem::Battery);
+}
+
+struct DisplayStatusBarConfig {
+  std::array<ReaderStatusBarItem, 3> slots{ReaderStatusBarItem::Empty, ReaderStatusBarItem::Empty,
+                                           ReaderStatusBarItem::Battery};
+
+  ReaderStatusBarConfig asReaderConfig() const {
+    ReaderStatusBarConfig config;
+    config.progressBar = 2;
+    config.slots[ReaderStatusBarConfig::LEFT_FIRST] = slots[0];
+    config.slots[ReaderStatusBarConfig::CENTER] = slots[1];
+    config.slots[ReaderStatusBarConfig::RIGHT_FIRST] = slots[2];
+    return config;
   }
 };
 

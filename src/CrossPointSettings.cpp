@@ -503,6 +503,9 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     }
   }
 
+  JsonArray displaySlots = doc["displayStatusBar"].to<JsonArray>();
+  for (const auto item : displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
+
   JsonObject bars = doc["readerStatusBars"].to<JsonObject>();
   bars["version"] = 1;
   writeReaderStatusBarJson(bars["top"].to<JsonObject>(), topReaderStatusBar);
@@ -871,8 +874,24 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     hideClock = legacyShowClock == LEGACY_SHOW_CLOCK_NEVER ? HIDE_CLOCK_ALWAYS : HIDE_CLOCK_NEVER;
     needsResave = true;
   }
-  if (doc["showClockOutsideReader"].isNull()) {
-    showClockOutsideReader = hideClock != HIDE_CLOCK_ALWAYS;
+  // Saved layouts must survive a temporarily unavailable RTC; rendering filters unavailable items.
+  const JsonArrayConst displaySlots = doc["displayStatusBar"].as<JsonArrayConst>();
+  if (displaySlots.size() == displayStatusBar.slots.size()) {
+    for (unsigned i = 0; i < displayStatusBar.slots.size(); ++i) {
+      const int raw = displaySlots[i].as<int>();
+      const int item = importingCrossPoint ? crossInkReaderStatusBarItemValue(raw) : raw;
+      if (displaySlots[i].is<int>() && validDisplayStatusBarItemValue(item, true)) {
+        displayStatusBar.slots[i] = static_cast<ReaderStatusBarItem>(item);
+      } else {
+        displayStatusBar.slots[i] = ReaderStatusBarItem::Empty;
+        needsResave = true;
+      }
+    }
+  } else {
+    displayStatusBar = DisplayStatusBarConfig{};
+    const bool legacyClock = doc["showClockOutsideReader"].isNull() ? hideClock != HIDE_CLOCK_ALWAYS
+                                                                    : (doc["showClockOutsideReader"].as<int>() != 0);
+    if (legacyClock) displayStatusBar.slots[1] = ReaderStatusBarItem::Clock;
     needsResave = true;
   }
   const JsonVariantConst bars = doc["readerStatusBars"];
@@ -881,18 +900,16 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
         {statusBarChapterPageCount != 0, stablePageNumbers != 0, statusBarBookProgressPercentage != 0, statusBarTitle,
          statusBarTimeLeft, statusBarBattery != 0, statusBarBookPercentageFormat, statusBarProgressBar,
          statusBarProgressBarThickness});
-    if (halClock.isAvailable() && hideClock == HIDE_CLOCK_NEVER) {
+    if (hideClock == HIDE_CLOCK_NEVER) {
       topReaderStatusBar.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::Clock;
     }
     legacyXtcTopUsesBottom = xtcStatusBarMode == XTC_STATUS_BAR_TOP;
     needsResave = true;
   } else {
-    needsResave |=
-        repairReaderStatusBarJson(bars["top"], topReaderStatusBar, halClock.isAvailable(), BOOK_PERCENTAGE_FORMAT_COUNT,
-                                  STATUS_BAR_PROGRESS_BAR_COUNT, STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
-    needsResave |= repairReaderStatusBarJson(bars["bottom"], bottomReaderStatusBar, halClock.isAvailable(),
-                                             BOOK_PERCENTAGE_FORMAT_COUNT, STATUS_BAR_PROGRESS_BAR_COUNT,
-                                             STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
+    needsResave |= repairReaderStatusBarJson(bars["top"], topReaderStatusBar, true, BOOK_PERCENTAGE_FORMAT_COUNT,
+                                             STATUS_BAR_PROGRESS_BAR_COUNT, STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
+    needsResave |= repairReaderStatusBarJson(bars["bottom"], bottomReaderStatusBar, true, BOOK_PERCENTAGE_FORMAT_COUNT,
+                                             STATUS_BAR_PROGRESS_BAR_COUNT, STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT);
     const int xtcMode = bars["xtcMode"].as<int>();
     if (bars["xtcMode"].is<int>() && xtcMode >= 0 && xtcMode < XTC_STATUS_BAR_MODE_COUNT) {
       xtcStatusBarMode = xtcMode;
@@ -900,6 +917,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       needsResave = true;
     }
     legacyXtcTopUsesBottom = bars["legacyXtcTopUsesBottom"].as<bool>() ? 1 : 0;
+    if (importingCrossPoint) {
+      for (auto* bar : {&topReaderStatusBar, &bottomReaderStatusBar}) {
+        std::transform(bar->slots.begin(), bar->slots.end(), bar->slots.begin(), [](const ReaderStatusBarItem slot) {
+          return static_cast<ReaderStatusBarItem>(crossInkReaderStatusBarItemValue(static_cast<int>(slot)));
+        });
+      }
+    }
   }
   if (doc["sleepTimeoutStep"].isNull()) {
     if (!doc["sleepTimeoutMinutes"].isNull()) {

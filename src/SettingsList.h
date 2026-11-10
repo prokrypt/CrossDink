@@ -1075,10 +1075,8 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   if (Frontlight.present()) {
     displaySettings.push_back(SettingInfo::Submenu(StrId::STR_FRONTLIGHT, SettingAction::DisplayFrontlight));
   }
+  displaySettings.push_back(SettingInfo::Action(StrId::STR_STATUS_BAR, SettingAction::DisplayStatusBar));
   addDisplaySetting(StrId::STR_HIDE_BATTERY);
-  if (halClock.isAvailable()) {
-    addDisplaySetting(StrId::STR_CLOCK_OUTSIDE_READER);
-  }
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SCREEN_CALIBRATION, SettingAction::ScreenCalibration));
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
   addDisplaySetting(StrId::STR_GHOST_BUSTERS);

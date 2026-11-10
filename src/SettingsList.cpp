@@ -52,8 +52,6 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           StrId::STR_CAT_DISPLAY)
             .withEnumRawValues({CrossPointSettings::HIDE_CLOCK_NEVER, CrossPointSettings::HIDE_CLOCK_IN_READER,
                                 CrossPointSettings::HIDE_CLOCK_ALWAYS}));
-    add(SettingInfo::Toggle(StrId::STR_CLOCK_OUTSIDE_READER, &CrossPointSettings::showClockOutsideReader,
-                            "showClockOutsideReader", StrId::STR_CAT_DISPLAY));
     add(SettingInfo::Enum(StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
                           {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15,
                            StrId::STR_PAGES_30, StrId::STR_NEVER},
