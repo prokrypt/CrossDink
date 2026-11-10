@@ -1,2 +1,0 @@
-Added:
-- SD theme packs can lay out Home with a `home.json` next to `theme.json`: a list of blocks (header, covers as one card, a row or a grid, reading stats, a menu list or grid, clock, text, 1-bit images, spacers), each a fixed % of the screen or flexible. Menu entries come from a fixed set with the built-in translated labels, plus folders and books on the card; Settings is always kept. A missing or broken `home.json` keeps the base theme's Home.
