@@ -293,6 +293,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Button keyboard tips keep their place while you type and hide when the keyboard leaves too little room for them; cursor hints only show in cursor mode.
 - Long paragraphs keep their CSS space above the first line, paragraphs that end in an image keep the space below them, and very long text runs are laid out in smaller pieces. Chapters rebuild their layout cache once.
 - Syncing a book from the File Browser or Library returns to that list (same folder and book, or same sort and search) even when leaving Wi-Fi needs a restart, instead of landing on Home.
+- Oversized high-color BMP sleep wallpapers and boot images keep thin lines and fine detail when fitted to the screen: pixels are averaged before dithering instead of skipped. Custom boot images are now cached like sleep images, so repeat boots skip the image decode.
 
 ### Added
 
