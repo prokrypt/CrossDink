@@ -109,6 +109,13 @@ class HalStorage {
   void noteLibraryScanned(uint32_t generation);
   bool libraryScanCurrent() const;
 
+#if CROSSDINK_PERF_LOG
+  // "[SDW] <when> <class>: wr ops/bytes/ms rd ops/bytes/ms rep N" for each path
+  // class this wake touched, then one "[SDW] <when> summary" line with the totals.
+  // rep counts reads of a path already read this wake.
+  static void logSdSummary(const char* when);
+#endif
+
   static HalStorage& getInstance() { return instance; }
 
   class StorageLock;  // private class, used internally
