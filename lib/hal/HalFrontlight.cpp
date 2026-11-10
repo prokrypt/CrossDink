@@ -1,6 +1,7 @@
 #include "HalFrontlight.h"
 
 #include <FrontlightGamma.h>
+#include <LightRamp.h>
 #include <Logging.h>
 #include <PowerCounters.h>
 
@@ -108,11 +109,11 @@ void HalFrontlight::apply() {
                                    : ((lit ? lastBrightness : 0) * int32_t{idleDim} * 256 + DIM_FULL / 2) / DIM_FULL;
 #ifndef SIMULATOR
   if (fadeStartUs != 0) {
-    // Linear in percent; the manager's gamma curve maps each step to duty.
+    // Even steps in perceived lightness; the manager's gamma curve maps each step to duty.
     const int64_t elapsedUs = esp_timer_get_time() - fadeStartUs;
     const int64_t spanUs = static_cast<int64_t>(fadeMs) * 1000;
     if (elapsedUs < spanUs) {
-      target = fadeFrom + static_cast<int32_t>((target - fadeFrom) * elapsedUs / spanUs);
+      target = lightRampLerp(fadeFrom, static_cast<uint16_t>(target), static_cast<float>(elapsedUs) / spanUs);
     } else {
       fadeStartUs = 0;
     }
