@@ -295,6 +295,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Syncing a book from the File Browser or Library returns to that list (same folder and book, or same sort and search) even when leaving Wi-Fi needs a restart, instead of landing on Home.
 - Oversized high-color BMP sleep wallpapers and boot images keep thin lines and fine detail when fitted to the screen: pixels are averaged before dithering instead of skipped. Custom boot images are now cached like sleep images, so repeat boots skip the image decode.
 - Frontlight fades (light toggle, Quick Lock, sleep, Light Timeout) and flash ducks now ramp evenly to the eye instead of holding near full and dropping off at the end.
+- A card or book folder copied to another reader no longer uploads the first reader's reading stats as new reading: each reader keeps its own stats files, and older stats stay on the card for older firmware.
 
 ### Added
 
