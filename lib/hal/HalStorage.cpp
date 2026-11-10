@@ -1022,6 +1022,11 @@ bool HalStorage::isTwinOnly(const char* path) {
   return !SDCard.exists(path) && legacyTwinLocked(path) != nullptr;
 }
 
+void HalStorage::hideTwin(const char* path) {
+  StorageLock lock;
+  if (legacyTwinLocked(path)) markDeletedLocked(path);
+}
+
 bool HalStorage::remove(const char* path) {
   if (affectsLibrary(path)) markLibraryContentChanged(path);
 #if CROSSDINK_PERF_LOG

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "sync/SyncFiles.h"
 
@@ -131,6 +132,52 @@ bool isTwinOnly(const std::string& path) {
 }
 
 std::string folderOf(const std::string& path) { return path.substr(0, path.rfind('/')); }
+
+// A native folder's /.crosspoint twin would merge into it on rename (HalStorage::rename).
+void hideTwinUnlessMine(const std::string& folder, const char* me) {
+#ifdef SIMULATOR
+  // shortcut: the mocked HalStorage has no twins (see isTwinOnly).
+  (void)folder;
+  (void)me;
+#else
+  const std::string twin = TWIN_ROOT + folder.substr(sizeof(NATIVE_ROOT) - 1);
+  if (!Storage.exists(twin.c_str())) return;
+  const RootClaim& r = root(true);  // a root-level folder: the twin root's record names its owner
+  if (r.state == Claim::None || (r.state == Claim::Found && strcmp(r.id, me) == 0)) return;
+  LOG_INF("StatsOrigin", "Leaving another reader's %s out of the move", twin.c_str());
+  Storage.hideTwin(folder.c_str());
+#endif
+}
+
+// Moves the files of `from` into `to`, keeping `to`'s copy of a name both hold.
+void moveFiles(const std::string& from, const std::string& to) {
+  // Names first: renaming while listing would move the directory cursor. One-off (rollback) path.
+  std::vector<std::string> names;
+  FsFile dir = Storage.open(from.c_str());
+  char name[64];
+  for (FsFile file = dir ? dir.openNextFile() : FsFile(); file; file = dir.openNextFile()) {
+    const bool regular = !file.isDirectory();
+    const size_t length = file.getName(name, sizeof(name));
+    file.close();
+    if (regular && length > 0) names.emplace_back(name);
+  }
+  dir.close();
+  bool kept = false;
+  for (const std::string& entry : names) {
+    const std::string target = to + "/" + entry;
+    if (Storage.exists(target.c_str())) {
+      kept = true;
+      continue;
+    }
+    if (!Storage.rename((from + "/" + entry).c_str(), target.c_str()))
+      LOG_ERR("StatsOrigin", "Cannot move %s", entry.c_str());
+  }
+  if (kept) {
+    LOG_INF("StatsOrigin", "Kept files %s and %s both hold in %s", from.c_str(), to.c_str(), from.c_str());
+  } else {
+    Storage.rmdir(from.c_str());
+  }
+}
 }  // namespace
 
 std::string StatsStorage::localPath(const std::string& legacyPath) {
@@ -192,6 +239,37 @@ bool StatsStorage::beforeFirstSave(const std::string& legacyPath) {
   if (readClaim(folder + CLAIM, existing) != Claim::None) return true;
   // No folder claim, so the owner came from the root claim.
   return writeClaim(folder + CLAIM, owner == Owner::Me ? me : r.id);
+}
+
+std::string StatsStorage::folderToRead(const std::string& legacyFolder) {
+  const std::string local = localPath(legacyFolder);
+  if (local.empty() || Storage.exists(local.c_str()) || !Storage.exists(legacyFolder.c_str())) return local;
+  return legacyOwner(legacyFolder) == Owner::Me ? legacyFolder : local;
+}
+
+std::string StatsStorage::adoptFolder(const std::string& legacyFolder) {
+  const std::string local = localPath(legacyFolder);
+  if (local.empty() || !Storage.exists(legacyFolder.c_str())) return local;
+  switch (legacyOwner(legacyFolder)) {
+    case Owner::Unknown:
+      LOG_ERR("StatsOrigin", "Not using %s: unreadable origin", legacyFolder.c_str());
+      return {};
+    case Owner::Other:
+      return local;  // another reader's: kept, never uploaded as this reader's
+    case Owner::Me:
+      break;
+  }
+  if (!beforeFirstSave("")) return {};  // the root record goes first
+  // cppcheck-suppress knownConditionTrueFalse ; constant only in the simulator build
+  if (!isTwinOnly(legacyFolder)) hideTwinUnlessMine(legacyFolder, myId());
+  if (Storage.exists(local.c_str())) {
+    moveFiles(legacyFolder, local);
+  } else if (!Storage.rename(legacyFolder.c_str(), local.c_str())) {
+    LOG_ERR("StatsOrigin", "Cannot move %s", legacyFolder.c_str());
+    return {};
+  }
+  LOG_INF("StatsOrigin", "Moved %s to %s", legacyFolder.c_str(), local.c_str());
+  return local;
 }
 
 void StatsStorage::forget() {

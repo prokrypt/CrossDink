@@ -14,9 +14,11 @@
 #include "CrossPointSettings.h"
 #include "sync/BookSyncFile.h"
 #include "sync/SyncFiles.h"
+#include "util/StatsStorage.h"
 
 namespace ReadingSessionJournal {
 namespace {
+// Older builds' outbox; this reader's is reading_sessions_<readerId> (util/StatsStorage.h).
 constexpr const char* DIRECTORY = "/.crossdink/reading_sessions";
 constexpr uint8_t VERSION = 1;
 
@@ -31,7 +33,11 @@ bool valid(const Record& r) {
          r.endedAt >= r.startedAt && r.seconds >= 10 && r.endedAt - r.startedAt <= 7 * 86400 &&
          r.seconds <= r.endedAt - r.startedAt && r.utcOffsetMinutes >= -720 && r.utcOffsetMinutes <= 840;
 }
-void pathFor(char* out, size_t capacity, const char* id) { snprintf(out, capacity, "%s/%s.bin", DIRECTORY, id); }
+void pathFor(char* out, size_t capacity, const std::string& directory, const char* id) {
+  snprintf(out, capacity, "%s/%s.bin", directory.c_str(), id);
+}
+// This reader's outbox; an older build's outbox it owns moves in on first use.
+std::string outbox() { return StatsStorage::adoptFolder(DIRECTORY); }
 uint64_t localSeconds(const ReadingStatsDateTime& t) {
   return 946684800ULL + uint64_t(readingStatsDayIndex(t.date)) * 86400 + t.hour * 3600u + t.minute * 60u + t.second;
 }
@@ -47,12 +53,14 @@ uint32_t randomWord() {
 
 bool save(const Record& record) {
   if (!valid(record)) return false;
-  if (!Storage.exists(DIRECTORY) && !Storage.mkdir(DIRECTORY)) {
+  const std::string directory = outbox();
+  if (directory.empty()) return false;
+  if (!Storage.exists(directory.c_str()) && !Storage.mkdir(directory.c_str())) {
     LOG_ERR("SessionStats", "Cannot create reading session outbox");
     return false;
   }
   char path[96];
-  pathFor(path, sizeof(path), record.id);
+  pathFor(path, sizeof(path), directory, record.id);
   SyncFiles::Writer writer(path);
   // Field-by-field serialization avoids ABI-dependent padding in persisted data.
   return writer.open() && writer.pod(VERSION) && writer.write(record.id, 32) && writer.write(record.document, 32) &&
@@ -99,8 +107,10 @@ bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, cons
 }
 
 bool uploadPending(const Upload upload, void* context) {
-  if (!Storage.exists(DIRECTORY)) return true;
-  FsFile dir = Storage.open(DIRECTORY);
+  const std::string directory = outbox();
+  if (directory.empty()) return false;
+  if (!Storage.exists(directory.c_str())) return true;
+  FsFile dir = Storage.open(directory.c_str());
   if (!dir || !dir.isDirectory()) {
     dir.close();
     LOG_ERR("SessionStats", "Cannot open reading session outbox");
@@ -119,7 +129,7 @@ bool uploadPending(const Upload upload, void* context) {
     name[32] = 0;
     if (!hexId(name)) continue;
     char path[96];
-    pathFor(path, sizeof(path), name);
+    pathFor(path, sizeof(path), directory, name);
     if (!Storage.exists(path) && !Storage.exists((std::string(path) + ".bak").c_str()) &&
         !Storage.exists((std::string(path) + ".tmp").c_str()))
       continue;
