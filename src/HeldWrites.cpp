@@ -48,7 +48,12 @@ bool writeAtomic(const char* path, const char* data, size_t, const bool compare)
 }
 
 bool writeSettings(const char*, const char* data, const size_t len, const bool compare) {
+#if CROSSDINK_PERF_LOG
+  (void)compare;
+  return CrossPointSettings::writeJsonToCard(data, len, true);  // the changed-keys log needs the card's copy
+#else
   return CrossPointSettings::writeJsonToCard(data, len, compare);
+#endif
 }
 
 struct SlotInfo {
