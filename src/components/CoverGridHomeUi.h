@@ -14,21 +14,15 @@
 class CoverGridHomeUi final : public UiAppHost<kUiListInteractions, kUiListHandlers> {
  public:
   using UiScreen = UiAppHost<kUiListInteractions, kUiListHandlers>::Screen;
-  static constexpr int THUMB_HEIGHT = 400;
   static constexpr int GRID_COLUMNS = 3;
   static constexpr int GRID_ROWS = 2;
   static constexpr int MAX_BOOKS = 1 + GRID_COLUMNS * GRID_ROWS;
   static_assert(MAX_BOOKS <= HomeCoverCache::MAX_COVERS);
   explicit CoverGridHomeUi(GfxRenderer& renderer);
   void begin(const std::vector<RecentBook>& books, bool hasPlugins, bool hasContinueReading, float featuredProgress);
-  void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);
-  // Exact generation size for a slot, recorded during draw. Rescaling a
-  // dithered 1-bit image aliases badly.
-  int thumbWidthFor(size_t index) const;
-  int thumbHeightFor(size_t index) const;
-  bool takeThumbHeightsChanged();
+  HomeCoverSlots& covers() { return coverSlots; }
 
  private:
   static void screenFn(UiScreen& screen, void* user);
@@ -41,16 +35,10 @@ class CoverGridHomeUi final : public UiAppHost<kUiListInteractions, kUiListHandl
   freeink::ui::Rect layoutGrid(freeink::ui::Rect rect);
   void drawTabs(UiScreen& screen, freeink::ui::Rect rect);
   bool paintFramedCover(freeink::ui::DrawTarget& target, freeink::ui::Rect rect, size_t index);
-  void refreshCoverPath(size_t index);
-  void noteThumbSize(size_t index, int slotWidth, int slotHeight);
 
-  HomeCoverCache coverCache;
+  HomeCoverSlots coverSlots;
   GfxRenderer& renderer;
   const std::vector<RecentBook>* books = nullptr;
-  std::array<std::string, MAX_BOOKS> coverPaths;
-  std::array<int, MAX_BOOKS> thumbWidths{};
-  std::array<int, MAX_BOOKS> thumbHeights{};
-  bool thumbHeightsChanged = false;
   int selected = 0;
   int pending = -1;
   int progress = -1;

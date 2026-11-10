@@ -4,7 +4,9 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <utility>
 
+#include "RecentBooksStore.h"
 #include "UITheme.h"
 #include "components/NoCoverPlaceholder.h"
 
@@ -86,4 +88,57 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
     }
   }
   return true;  // The cover slot is painted, including fallback art.
+}
+
+void HomeCoverSlots::begin(const std::vector<RecentBook>& recent) {
+  books = &recent;
+  if (!recent.empty()) cache.begin();
+  refreshPaths();
+}
+
+void HomeCoverSlots::refreshPaths() {
+  cache.invalidate();
+  for (size_t i = 0; i < books->size() && i < paths.size(); ++i) refreshPath(i);
+}
+
+void HomeCoverSlots::refreshPath(const size_t index) {
+  if (index >= books->size() || index >= paths.size()) return;
+  cache.invalidate(index);
+  paths[index] = widths[index] > 0 && heights[index] > 0
+                     ? UITheme::getCoverThumbPath((*books)[index].coverBmpPath, widths[index], heights[index], false)
+                     : std::string();
+}
+
+int HomeCoverSlots::widthFor(const size_t index) const {
+  return index < widths.size() && widths[index] > 0 ? widths[index] : DEFAULT_HEIGHT * 2 / 3;
+}
+
+int HomeCoverSlots::heightFor(const size_t index) const {
+  return index < heights.size() && heights[index] > 0 ? heights[index] : DEFAULT_HEIGHT;
+}
+
+bool HomeCoverSlots::takeSizesChanged() { return std::exchange(sizesChanged, false); }
+
+void HomeCoverSlots::note(const size_t index, const int slotWidth, const int slotHeight) {
+  if (index >= heights.size()) return;
+  const int width = std::max(1, slotWidth);
+  const int height = std::max(1, slotHeight);
+  if (widths[index] != width || heights[index] != height) {
+    widths[index] = width;
+    heights[index] = height;
+    sizesChanged = true;
+    refreshPath(index);
+  }
+}
+
+bool HomeCoverSlots::paintFramed(fui::DrawTarget& target, const fui::Rect rect, const size_t index) {
+  constexpr int16_t SHADOW_OFFSET = 2;
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  target.fill(fui::Rect{rect.right(), static_cast<int16_t>(rect.y + SHADOW_OFFSET), SHADOW_OFFSET, rect.height}, ink);
+  target.fill(fui::Rect{static_cast<int16_t>(rect.x + SHADOW_OFFSET), rect.bottom(), rect.width, SHADOW_OFFSET}, ink);
+  // The cache draws the no-cover placeholder itself and snapshots it with the covers.
+  const bool drawn =
+      books && index < paths.size() && index < books->size() && cache.paint(rect, index, paths[index], (*books)[index]);
+  target.stroke(rect, ink, 1, 0);
+  return drawn;
 }

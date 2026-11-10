@@ -5,6 +5,7 @@
 #include <Xtc.h>
 
 #include "CrossPointSettings.h"
+#include "components/ThemePack.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
@@ -33,8 +34,8 @@ Specs forActiveTheme(const std::string& bookPath, const int coverHeight) {
   Specs specs;
   const bool isEpub = FsHelpers::hasEpubExtension(bookPath);
   if (!isEpub && !FsHelpers::hasXtcExtension(bookPath)) return specs;
-  if (UITheme::hasCoverGridHome()) {
-    // Same file as the grid's FromSource thumb, from the loaded metadata.
+  if (UITheme::hasCoverGridHome() || ThemePack::homeLayout()) {
+    // Same file as the grid's (or a pack Home's) FromSource thumb, from the loaded metadata.
     add(specs, Kind::Exact, 0, coverGridThumbHeight);
     return specs;
   }

@@ -23,6 +23,7 @@
 #include "components/CoverGridHomeUi.h"
 #include "components/HomeCoverThumbs.h"
 #include "components/OptionPopup.h"
+#include "components/PackHomeUi.h"
 #include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
@@ -42,6 +43,8 @@ class HomeActivity final : public Activity {
 #endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
+  // The active theme pack's home.json Home; takes the place of the base theme's.
+  std::unique_ptr<PackHomeUi> packHomeUi;
   bool gridHasContinueReading = false;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
@@ -159,6 +162,10 @@ class HomeActivity final : public Activity {
   // Returns true when a cover path was newly resolved, so Home needs a repaint.
   bool loadCoverGridThumbnails();
   void activateCoverGridSelection();
+  void beginPackHome();
+  void activatePackSelection();
+  // The cover slots of Cover Grid or a pack Home, which size covers from their own layout.
+  HomeCoverSlots* coverSlots() const;
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
 
