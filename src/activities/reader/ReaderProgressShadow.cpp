@@ -24,12 +24,13 @@ struct Record {
   uint8_t version;
   uint8_t kind;
   uint8_t pending;
-  uint8_t reserved;
+  uint8_t size;  // sizeof(Record), per rtc-memory-compat.md rule 2
   uint32_t position;
   uint32_t metadata;
   char cachePath[MAX_CACHE_PATH];
   uint32_t crc;
 };
+static_assert(sizeof(Record) <= UINT8_MAX, "Record::size is one byte");
 
 // RTC_NOINIT holds garbage after power-on, so every read goes through isValid().
 RTC_NOINIT_ATTR Record rtcRecord;
@@ -37,8 +38,8 @@ RTC_NOINIT_ATTR Record rtcRecord;
 uint32_t checksum(const Record& record) { return uzlib_crc32(&record, offsetof(Record, crc), 0); }
 
 bool isValid(const Record& record) {
-  return record.magic == RECORD_MAGIC && record.version == RECORD_VERSION && record.crc == checksum(record) &&
-         memchr(record.cachePath, '\0', MAX_CACHE_PATH) != nullptr;
+  return record.magic == RECORD_MAGIC && record.version == RECORD_VERSION && record.size == sizeof(Record) &&
+         record.crc == checksum(record) && memchr(record.cachePath, '\0', MAX_CACHE_PATH) != nullptr;
 }
 
 void seal() { rtcRecord.crc = checksum(rtcRecord); }
@@ -122,7 +123,7 @@ bool bind(const Kind kind, const std::string& cachePath) {
   rtcRecord.version = RECORD_VERSION;
   rtcRecord.kind = static_cast<uint8_t>(kind);
   rtcRecord.pending = 0;
-  rtcRecord.reserved = 0;
+  rtcRecord.size = sizeof(Record);
   rtcRecord.position = 0;
   rtcRecord.metadata = 0;
   memset(rtcRecord.cachePath, 0, MAX_CACHE_PATH);

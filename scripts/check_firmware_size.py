@@ -1,12 +1,22 @@
 """
 PlatformIO post-build script: fail when firmware.bin does not fit in the
-smallest app partition from partitions.csv.
+smallest app partition from partitions.csv, or when the data in RTC slow
+memory grows past RTC_SLOW_BUDGET.
 """
 
 import csv
 import os
 import re
+import subprocess
 import sys
+
+# ESP32-S3 RTC slow memory (data bus) and the budget for everything linked there
+# (.rtc_noinit, .rtc.data, .rtc.bss, .rtc.force_slow). The linker allows 7,680 B
+# (8 KB less the 512 B ULP reserve); the budget keeps headroom so a new RTC record
+# is a deliberate bump here, not a silent grab of the last bytes.
+RTC_SLOW_START = 0x50000000
+RTC_SLOW_END = 0x50002000
+RTC_SLOW_BUDGET = 7168
 
 
 def _parse_size(value):
@@ -101,6 +111,35 @@ def check_firmware_size(source, target, env):
         f'{firmware_size} bytes <= {limit} bytes '
         f'({remaining} bytes free)',
     )
+
+    check_rtc_slow(firmware_path[:-len('.bin')] + '.elf', env)
+
+
+def check_rtc_slow(elf_path, env):
+    size_tool = env.subst('$SIZETOOL')
+    try:
+        out = subprocess.run([size_tool, '-A', elf_path], capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as err:
+        print(f'RTC slow check: cannot run {size_tool!r} on {elf_path}: {err}', file=sys.stderr)
+        env.Exit(1)
+
+    sections = []
+    for line in out.splitlines():
+        parts = line.split()  # "name size addr", decimal
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+            name, size, addr = parts[0], int(parts[1]), int(parts[2])
+            if size and RTC_SLOW_START <= addr < RTC_SLOW_END:
+                sections.append((name, size))
+    used = sum(size for _, size in sections)
+    detail = ', '.join(f'{name} {size}' for name, size in sections) or 'none'
+    if used > RTC_SLOW_BUDGET:
+        print(
+            f'RTC slow memory over budget: {used} bytes > {RTC_SLOW_BUDGET} ({detail}); '
+            f'shrink a record or raise RTC_SLOW_BUDGET in scripts/check_firmware_size.py on purpose',
+            file=sys.stderr,
+        )
+        env.Exit(1)
+    print(f'RTC slow memory: {used} bytes <= {RTC_SLOW_BUDGET} budget ({detail})')
 
 
 try:
