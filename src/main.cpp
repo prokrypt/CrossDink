@@ -3045,7 +3045,8 @@ static void updateFlashDuckLocked() {
   // Never duck below 2% of full: lower duty shifts the frontlight color. Every duck level below derives from this.
   const unsigned long minPct = std::max<unsigned long>(KNOBS.flashDuckMinPct, 2);
   if (!flashDuckActive) {
-    if (!ducking || holdLate || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
+    // The Up+Down clock is a peek: its two refreshes (clock, sleep screen) would pump the light it just faded in.
+    if (!ducking || holdLate || wallpaperChordWake || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() ||
         Frontlight.idleDimPercent() != 100) {
       return;
     }
@@ -3156,7 +3157,7 @@ static void updateFlashDuckLocked() {
 // dim or at the floor it does nothing, so don't tick the loop at 10 ms for it.
 static bool flashDuckPending() {
   if (flashDuckActive) return true;
-  if (!SETTINGS.frontlightFlashDuck || !Frontlight.isOn() || Frontlight.idleDimPercent() != 100 ||
+  if (wallpaperChordWake || !SETTINGS.frontlightFlashDuck || !Frontlight.isOn() || Frontlight.idleDimPercent() != 100 ||
       Frontlight.brightness() <= std::max<unsigned long>(KNOBS.flashDuckMinPct, 2)) {
     return false;
   }
