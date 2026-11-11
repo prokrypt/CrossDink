@@ -308,6 +308,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - A card or book folder copied to another reader no longer uploads the first reader's reading stats as new reading: each reader keeps its own stats files, and older stats stay on the card for older firmware.
 - Daily reading counters and pending reading sessions are kept per reader too, so a copied card no longer uploads another reader's daily totals or sessions.
 - With the clock unset, a full sleep image cache now replaces a random entry instead of always the newest one, so old entries (for example after a firmware update) no longer stay forever while new images keep missing the cache.
+- The battery log records a light timeout when the fade has finished instead of when it starts, so lit time is no longer under-counted.
 
 ### Added
 
