@@ -19,6 +19,14 @@ constexpr char NVS_NAMESPACE[] = "panel";
 constexpr char NVS_KEY[] = "probe";
 constexpr uint8_t RECORD_VERSION = 1;
 
+// The record keeps controllers as raw enum values, so an SDK renumber would boot a
+// stale record into the wrong driver. Pin the values the probe can store; if one
+// fails, bump RECORD_VERSION (forces one re-probe) and update the pin.
+using Controller = BoardConfig::DisplayController;
+static_assert(static_cast<uint8_t>(Controller::SSD1677) == 0 && static_cast<uint8_t>(Controller::UC8253) == 2 &&
+                  static_cast<uint8_t>(Controller::UC8279) == 6 && static_cast<uint8_t>(Controller::UC8179) == 7,
+              "DisplayController renumbered: bump RECORD_VERSION");
+
 struct Record {
   uint8_t version;
   uint8_t board;
