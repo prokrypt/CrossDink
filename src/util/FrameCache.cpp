@@ -1,5 +1,6 @@
 #include "FrameCache.h"
 
+#include <Arduino.h>
 #include <Logging.h>
 #include <ZipFile.h>
 
@@ -36,11 +37,15 @@ uint64_t sampledContentHash(FsFile& file) {
 }
 
 // Drops the oldest file once the folder holds FRAME_CACHE_MAX_FILES.
-// shortcut: oldest by FAT creation time, ties (no clock) drop an arbitrary file; fine for a cache.
+// Oldest by FAT creation time; ties (clock unset: every file has the same stamp)
+// drop a random one of them. A fixed pick would always free the first directory
+// slot, which the next write reuses, so only the newest entry would ever turn
+// over and stale files (e.g. from an older firmware) would never leave.
 void trimFrameCache() {
   auto dir = Storage.open(FRAME_CACHE_DIR);
   if (!dir || !dir.isDirectory()) return;
   int files = 0;
+  int ties = 0;
   uint32_t oldestTime = UINT32_MAX;
   char name[32];
   char oldest[32] = "";
@@ -48,7 +53,9 @@ void trimFrameCache() {
     if (!entry.isDirectory()) {
       ++files;
       const uint32_t created = entry.creationTime();
-      if (created < oldestTime && entry.getName(name, sizeof(name)) > 0) {
+      if (created < oldestTime) ties = 0;
+      // Reservoir pick: each of the n oldest-time files ends up chosen with chance 1/n.
+      if (created <= oldestTime && random(++ties) == 0 && entry.getName(name, sizeof(name)) > 0) {
         oldestTime = created;
         memcpy(oldest, name, sizeof(oldest));
       }
