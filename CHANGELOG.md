@@ -309,6 +309,7 @@ This changelog lists changes made in CrossDink. CrossDink started from CrossInk 
 - Daily reading counters and pending reading sessions are kept per reader too, so a copied card no longer uploads another reader's daily totals or sessions.
 - With the clock unset, a full sleep image cache now replaces a random entry instead of always the newest one, so old entries (for example after a firmware update) no longer stay forever while new images keep missing the cache.
 - The battery log records a light timeout when the fade has finished instead of when it starts, so lit time is no longer under-counted.
+- The light no longer dips while the Up+Down clock and the sleep screen after it draw; it fades in, holds, and fades out.
 
 ### Added
 
