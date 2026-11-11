@@ -2060,8 +2060,9 @@ void enterDeepSleep(bool fromTimeout, bool powerOff) {
     // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
     // a WiFi activity would otherwise silentRestart() here and reboot instead.
     deepSleepInProgress = true;
-    activityManager.preparePluginSleep();
-    {
+    activityManager.preparePluginSleep();  // also the readers' progress save: runs with plugins off
+    // Plugins off: skip the render lock wait, battery read and book path copy that only feed the SleepEnter event.
+    if (SETTINGS.pluginsEnabled) {
       RenderLock lock;
       const std::string book = activityManager.getCurrentBookPath();
       pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
