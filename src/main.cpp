@@ -3518,7 +3518,9 @@ static void loopPass() {
 
   // Light timeout. Any input brings the light back and still acts, so the
   // first tap after a long idle is never lost.
-  static bool lightTimedOut = false;  // the timeout dimmed it (not the flash duck)
+  static bool lightTimedOut = false;     // the timeout dimmed it (not the flash duck)
+  static bool lightDarkPending = false;  // the timeout fade is running; the battery log waits for dark
+  static unsigned long lightDarkAt = 0;
   if (lightTimedOut && Frontlight.idleDimPercent() == 100) lightTimedOut = false;  // restored elsewhere
   if (userInputReceived && lightTimedOut) {
     lightTimedOut = false;
@@ -3537,10 +3539,18 @@ static void loopPass() {
       // One ramp on the light's own 10 ms fade timer: the idle loop ticks too slowly to step it smoothly.
       const unsigned long fadedMs = idleMs - lightTimeoutMs;
       LOG_DBG("LIGHT", "Light timeout: fading after %lu ms", idleMs);
-      frontlightSetDim(0, fadedMs >= LIGHT_FADE_MS ? 0 : LIGHT_FADE_MS - fadedMs);
+      const unsigned long rampMs = fadedMs >= LIGHT_FADE_MS ? 0 : LIGHT_FADE_MS - fadedMs;
+      frontlightSetDim(0, rampMs);
       lightTimedOut = true;
-      BatteryLog::lightChanged(true);
+      lightDarkPending = true;
+      lightDarkAt = millis() + rampMs;
     }
+  }
+  if (!lightTimedOut) {
+    lightDarkPending = false;  // restored mid-fade: the light never went dark
+  } else if (lightDarkPending && static_cast<long>(millis() - lightDarkAt) >= 0) {
+    lightDarkPending = false;
+    BatteryLog::lightChanged(true);
   }
   updateFlashDuck();
   BatteryLog::poll(millis() - lastActivityTime);
